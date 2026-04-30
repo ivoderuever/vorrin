@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.vorrin"
+    namespace = "nl.deruever.vorrin"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -12,7 +12,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.vorrin"
+        applicationId = "nl.deruever.vorrin"
         minSdk = 31
         targetSdk = 36
         versionCode = 1
@@ -48,6 +48,24 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.compose.material.icons)
+    implementation(libs.androidx.graphics.shapes)
+
+    // Media3 (ExoPlayer) - audio playback, background service, media notification
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.session)
+    implementation(libs.androidx.media3.ui)
+
+    // DataStore - persist playback position and settings
+    implementation(libs.androidx.datastore.preferences)
+
+    // Navigation - switching between library and player screens
+    implementation(libs.androidx.navigation.compose)
+
+    // Coil - load embedded cover art from M4B files
+    implementation(libs.coil.compose)
+
+
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

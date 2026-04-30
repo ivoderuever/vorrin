@@ -1,4 +1,4 @@
-package com.example.vorrin.ui.theme
+package nl.deruever.vorrin.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

@@ -1,4 +1,4 @@
-package com.example.vorrin
+package nl.deruever.vorrin
 
 import org.junit.Test
 
