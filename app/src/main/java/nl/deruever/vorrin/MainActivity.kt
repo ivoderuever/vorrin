@@ -6,6 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import nl.deruever.vorrin.data.Audiobook
 import nl.deruever.vorrin.ui.library.LibraryScreen
+import nl.deruever.vorrin.ui.player.PlayerScreen
 import nl.deruever.vorrin.ui.theme.VorrinTheme
 
 class MainActivity : ComponentActivity() {
@@ -14,9 +15,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             VorrinTheme {
-                LibraryScreen(onBookClick = { book: Audiobook ->
-                    // Player screen navigation comes later
-                })
+//                LibraryScreen(onBookClick = { book: Audiobook ->
+//                    // Player screen navigation comes later
+//                })
+                PlayerScreen()
             }
         }
     }

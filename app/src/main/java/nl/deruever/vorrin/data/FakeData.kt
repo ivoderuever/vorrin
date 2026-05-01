@@ -8,7 +8,7 @@ object FakeData {
             author = "Brandon Sanderson",
             uri = "",
             duration = 144_060_000L,
-            lastPosition = 34_574_400L,
+            lastPosition = 574_400L,
             chapters = listOf(
                 Chapter(0, "Prologue", 0L, 1_080_000L),
                 Chapter(1, "Chapter 1 — Szeth", 1_080_000L, 3_660_000L),

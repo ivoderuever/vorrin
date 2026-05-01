@@ -36,7 +36,6 @@ fun LibraryScreen(onBookClick: (Audiobook) -> Unit) {
                 title = {
                     Text(
                         text = "Vorrin",
-                        fontWeight = FontWeight.Bold
                     )
                 },
 //                contentPadding = PaddingValues(
@@ -88,7 +87,6 @@ fun BookItem(book: Audiobook, onClick: () -> Unit) {
                 Text(
                     text = book.title,
                     style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
 //                    overflow = TextOverflow.Ellipsis
                     modifier = Modifier.basicMarquee()
