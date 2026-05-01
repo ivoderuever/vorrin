@@ -32,7 +32,17 @@ fun LibraryScreen(onBookClick: (Audiobook) -> Unit) {
     val layoutDirection = LocalLayoutDirection.current
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Vorrin") })
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "Vorrin",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+//                contentPadding = PaddingValues(
+//                    start = 6.dp,
+//                )
+            )
         },
         contentWindowInsets = WindowInsets.safeDrawing
     ) { padding ->
@@ -107,13 +117,13 @@ fun BookItem(book: Audiobook, onClick: () -> Unit) {
                     modifier = Modifier
                         .size(36.dp)
                         .clip(MaterialShapes.Sunny.toShape())
-                        .background(MaterialTheme.colorScheme.onSecondaryContainer),
+                        .background(MaterialTheme.colorScheme.tertiary),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Check,
                         contentDescription = "Finished",
-                        tint = MaterialTheme.colorScheme.secondaryContainer,
+                        tint = MaterialTheme.colorScheme.onTertiary,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -127,7 +137,7 @@ fun BookItem(book: Audiobook, onClick: () -> Unit) {
                 ) {
                     Text(
                         text = "${book.progressPercent}%",
-                        style = MaterialTheme.typography.labelLarge,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         fontWeight = FontWeight.Bold
                     )
