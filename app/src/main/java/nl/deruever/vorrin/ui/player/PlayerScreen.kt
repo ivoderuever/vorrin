@@ -1,5 +1,9 @@
 package nl.deruever.vorrin.ui.player
 
+import android.app.Activity
+import android.content.pm.ActivityInfo
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBackIosNew
@@ -13,7 +17,18 @@ import nl.deruever.vorrin.data.Audiobook
 import nl.deruever.vorrin.data.FakeData
 import nl.deruever.vorrin.utils.formatDuration
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.Forward30
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Replay
+import androidx.compose.ui.graphics.Color
 import nl.deruever.vorrin.data.Chapter
+
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -21,6 +36,14 @@ fun PlayerScreen(
     book: Audiobook = FakeData.books[0],
     onBackClick: () -> Unit = {}
 ) {
+    val activity = LocalContext.current as? Activity
+    DisposableEffect(Unit) {
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        onDispose {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
     // Fake state for now
     var isPlaying by remember { mutableStateOf(false) }
     var isChapterSheetOpen by remember { mutableStateOf(false) }
@@ -58,7 +81,35 @@ fun PlayerScreen(
                 currentPositionMs = currentPositionMs,
                 isPlaying = isPlaying
             )
+            Spacer(modifier = Modifier.weight(1f))
+            PlayerControls(
+                isPlaying = isPlaying,
+                skipDurationSeconds = skipDurationSeconds,
+                playbackSpeed = playbackSpeed,
+                onPlayPause = { isPlaying = !isPlaying },
+                onSkipBack = { currentPositionMs = (currentPositionMs - skipDurationSeconds * 1000L).coerceAtLeast(0L) },
+                onSkipForward = { currentPositionMs = (currentPositionMs + skipDurationSeconds * 1000L).coerceAtMost(book.duration) },
+                onSpeedClick = { /* settings later */ },
+                onSkipDurationClick = { /* settings later */ }
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            PlayerChapterBar(
+                currentChapter = currentChapter,
+                onClick = { isChapterSheetOpen = true }
+            )
         }
+    }
+
+    if (isChapterSheetOpen) {
+        ChapterSheet(
+            chapters = book.chapters,
+            currentChapter = currentChapter,
+            onChapterClick = { chapter ->
+                currentPositionMs = chapter.startTimeMs
+                isChapterSheetOpen = false
+            },
+            onDismiss = { isChapterSheetOpen = false }
+        )
     }
 }
 
@@ -126,7 +177,11 @@ private fun PlayerProgress(
         label = "waveAmplitude"
     )
 
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp)
+    ) {
         LinearWavyProgressIndicator(
             progress = { chapterProgress },
             modifier = Modifier.fillMaxWidth(),
@@ -147,6 +202,196 @@ private fun PlayerProgress(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@Composable
+private fun PlayerControls(
+    isPlaying: Boolean,
+    skipDurationSeconds: Int,
+    playbackSpeed: Float,
+    onPlayPause: () -> Unit,
+    onSkipBack: () -> Unit,
+    onSkipForward: () -> Unit,
+    onSpeedClick: () -> Unit,
+    onSkipDurationClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // Main controls row
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Skip back
+            FilledTonalIconButton(
+                onClick = onSkipBack,
+                modifier = Modifier.size(64.dp),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Rounded.Replay,
+                        contentDescription = "Skip back",
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = "${skipDurationSeconds}s",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
+
+            // Play/pause - wider rounded rectangle like reference
+            FilledIconButton(
+                onClick = onPlayPause,
+                modifier = Modifier
+                    .height(64.dp)
+                    .width(120.dp),
+                shape = RoundedCornerShape(20.dp),
+            ) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+
+            // Skip forward
+            FilledTonalIconButton(
+                onClick = onSkipForward,
+                modifier = Modifier.size(64.dp),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Rounded.Forward30,
+                        contentDescription = "Skip forward",
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = "${skipDurationSeconds}s",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
+        }
+
+        // Speed and skip duration pills
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            AssistChip(
+                onClick = onSpeedClick,
+                label = {
+                    Text(
+                        text = "${playbackSpeed}×  Speed",
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                },
+                modifier = Modifier.weight(1f)
+            )
+            AssistChip(
+                onClick = onSkipDurationClick,
+                label = {
+                    Text(
+                        text = "${skipDurationSeconds}s  Skip",
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                },
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlayerChapterBar(
+    currentChapter: Chapter?,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(
+                    text = "Current chapter",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = currentChapter?.title ?: "No chapters",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            Icon(
+                imageVector = Icons.Rounded.ExpandLess,
+                contentDescription = "Browse chapters",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChapterSheet(
+    chapters: List<Chapter>,
+    currentChapter: Chapter?,
+    onChapterClick: (Chapter) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState()
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState
+    ) {
+        Text(
+            text = "Chapters",
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+        )
+        LazyColumn(
+            contentPadding = PaddingValues(bottom = 32.dp)
+        ) {
+            items(chapters) { chapter ->
+                val isActive = chapter.index == currentChapter?.index
+                ListItem(
+                    headlineContent = {
+                        Text(
+                            text = chapter.title,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (isActive) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface,
+                        )
+                    },
+                    trailingContent = {
+                        Text(
+                            text = formatDuration(chapter.durationMs),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
+                    colors = ListItemDefaults.colors(
+                        containerColor = Color.Transparent
+                    ),
+                    modifier = Modifier.clickable { onChapterClick(chapter) }
+                )
+                HorizontalDivider()
+            }
         }
     }
 }

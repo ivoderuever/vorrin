@@ -23,6 +23,10 @@ import androidx.compose.foundation.basicMarquee
 import androidx.compose.material3.Icon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.sharp.Pause
+import androidx.compose.material.icons.sharp.PlayArrow
+import androidx.compose.runtime.*
+import androidx.compose.ui.text.style.TextOverflow
 import nl.deruever.vorrin.data.Audiobook
 import nl.deruever.vorrin.data.FakeData
 
@@ -30,17 +34,19 @@ import nl.deruever.vorrin.data.FakeData
 @Composable
 fun LibraryScreen(onBookClick: (Audiobook) -> Unit) {
     val layoutDirection = LocalLayoutDirection.current
+    var isPlaying by remember { mutableStateOf(false) }
+    val currentBook = FakeData.books[0] // fake for now
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Vorrin",
-                    )
-                },
-//                contentPadding = PaddingValues(
-//                    start = 6.dp,
-//                )
+            TopAppBar(title = { Text("Vorrin") })
+        },
+        bottomBar = {
+            MiniPlayer(
+                book = currentBook,
+                isPlaying = isPlaying,
+                onPlayPause = { isPlaying = !isPlaying },
+                onClick = { onBookClick(currentBook) },
             )
         },
         contentWindowInsets = WindowInsets.safeDrawing
@@ -140,6 +146,66 @@ fun BookItem(book: Audiobook, onClick: () -> Unit) {
                         fontWeight = FontWeight.Bold
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MiniPlayer(
+    book: Audiobook,
+    isPlaying: Boolean,
+    onPlayPause: () -> Unit,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 58.dp, top = 8.dp),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Cover art
+            Surface(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp)),
+                color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f)
+            ) {}
+
+            // Title and author
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = book.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = book.author,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // Play/pause
+            FilledTonalIconButton(onClick = onPlayPause) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Sharp.Pause else Icons.Sharp.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                )
             }
         }
     }
