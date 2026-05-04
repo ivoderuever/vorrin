@@ -1,0 +1,35 @@
+package nl.deruever.vorrin.data
+
+import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+
+val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "vorrin_prefs")
+
+class PreferencesRepository(private val context: Context) {
+
+    companion object {
+        val FOLDER_URI_KEY = stringPreferencesKey("folder_uri")
+    }
+
+    val folderUri: Flow<String?> = context.dataStore.data.map { prefs ->
+        prefs[FOLDER_URI_KEY]
+    }
+
+    suspend fun saveFolderUri(uri: String) {
+        context.dataStore.edit { prefs ->
+            prefs[FOLDER_URI_KEY] = uri
+        }
+    }
+
+    suspend fun clearFolderUri() {
+        context.dataStore.edit { prefs ->
+            prefs.remove(FOLDER_URI_KEY)
+        }
+    }
+}
