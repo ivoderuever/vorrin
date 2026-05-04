@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -12,6 +13,7 @@ import androidx.navigation.toRoute
 import kotlinx.serialization.Serializable
 
 import nl.deruever.vorrin.ui.library.LibraryScreen
+import nl.deruever.vorrin.ui.library.LibraryViewModel
 import nl.deruever.vorrin.ui.player.PlayerScreen
 
 @Serializable
@@ -34,8 +36,10 @@ fun VorrinNavigation() {
     ) {
 
         composable<LibraryRoute> {
+            val viewModel: LibraryViewModel = viewModel()
             LibraryScreen(
                 onBookClick = { book ->
+                    viewModel.setActiveBook(book)
                     navController.navigate(PlayerRoute(bookId = book.id))
                 }
             )

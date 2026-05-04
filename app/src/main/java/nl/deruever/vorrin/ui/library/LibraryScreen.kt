@@ -46,6 +46,7 @@ fun LibraryScreen(onBookClick: (Audiobook) -> Unit) {
     val books by viewModel.books.collectAsState()
     val folderUri by viewModel.folderUri.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val activeBook by viewModel.activeBook.collectAsState()
     val layoutDirection = LocalLayoutDirection.current
     var isPlaying by remember { mutableStateOf(false) }
 
@@ -56,12 +57,13 @@ fun LibraryScreen(onBookClick: (Audiobook) -> Unit) {
             }
         },
         bottomBar = {
-            if (books.isNotEmpty()) {
+            val bookToShow = activeBook ?: books.firstOrNull { !it.isFinished }
+            if (bookToShow != null) {
                 MiniPlayer(
-                    book = books.first(),
+                    book = bookToShow,
                     isPlaying = isPlaying,
                     onPlayPause = { isPlaying = !isPlaying },
-                    onClick = { onBookClick(books.first()) }
+                    onClick = { onBookClick(bookToShow) }
                 )
             }
         },
@@ -289,7 +291,6 @@ private fun IntroApp(onFolderPicked: (Uri) -> Unit) {
                 )
             }
 
-            // 4. Primary Action
             FolderPickButton(
                 onFolderPicked = onFolderPicked,
                 buttonText = "Select Audiobook Folder"

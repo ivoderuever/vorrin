@@ -26,12 +26,22 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _activeBook = MutableStateFlow<Audiobook?>(null)
+    val activeBook: StateFlow<Audiobook?> = _activeBook.asStateFlow()
+
     init {
         viewModelScope.launch {
             preferencesRepository.folderUri.collect { uri ->
                 _folderUri.value = uri
                 if (uri != null) {
                     loadBooks(Uri.parse(uri))
+                }
+            }
+        }
+        viewModelScope.launch {
+            preferencesRepository.activeBookUri.collect { activeUri ->
+                if (activeUri != null) {
+                    _activeBook.value = _books.value.find { it.uri == activeUri }
                 }
             }
         }
@@ -44,22 +54,18 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-//    private fun loadBooks(uri: Uri) {
-//        viewModelScope.launch {
-//            _isLoading.value = true
-//            _books.value = bookRepository.getBooksFromFolder(uri)
-//            _isLoading.value = false
-//        }
-//    }
-
     private fun loadBooks(uri: Uri) {
         viewModelScope.launch {
             _isLoading.value = true
-            val found = bookRepository.getBooksFromFolder(uri)
-            android.util.Log.d("Vorrin", "Found ${found.size} books in folder")
-            found.forEach { android.util.Log.d("Vorrin", "Book: ${it.title}") }
-            _books.value = found
+            _books.value = bookRepository.getBooksFromFolder(uri)
             _isLoading.value = false
+        }
+    }
+
+    fun setActiveBook(book: Audiobook) {
+        _activeBook.value = book
+        viewModelScope.launch {
+            preferencesRepository.saveActiveBookUri(book.uri)
         }
     }
 }

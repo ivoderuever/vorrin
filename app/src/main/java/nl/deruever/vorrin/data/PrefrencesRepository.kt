@@ -15,15 +15,25 @@ class PreferencesRepository(private val context: Context) {
 
     companion object {
         val FOLDER_URI_KEY = stringPreferencesKey("folder_uri")
+        val ACTIVE_BOOK_URI_KEY = stringPreferencesKey("active_book_uri")
     }
 
     val folderUri: Flow<String?> = context.dataStore.data.map { prefs ->
         prefs[FOLDER_URI_KEY]
     }
 
+    val activeBookUri: Flow<String?> = context.dataStore.data.map { prefs ->
+        prefs[ACTIVE_BOOK_URI_KEY]
+    }
+
     suspend fun saveFolderUri(uri: String) {
         context.dataStore.edit { prefs ->
             prefs[FOLDER_URI_KEY] = uri
+        }
+    }
+    suspend fun saveActiveBookUri(uri: String) {
+        context.dataStore.edit { prefs ->
+            prefs[ACTIVE_BOOK_URI_KEY] = uri
         }
     }
 
