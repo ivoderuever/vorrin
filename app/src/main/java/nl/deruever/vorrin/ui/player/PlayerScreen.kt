@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -46,18 +47,21 @@ fun PlayerScreen(
     val currentPositionMs by viewModel.currentPositionMs.collectAsState()
     val isReady by viewModel.isReady.collectAsState()
     val duration by viewModel.duration.collectAsState()
+    val chapters by viewModel.chapters.collectAsState()
 
     var isChapterSheetOpen by remember { mutableStateOf(false) }
     var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
     var skipDurationSeconds by remember { mutableIntStateOf(30) }
 
-    val currentChapter = book.chapters.lastOrNull { it.startTimeMs <= currentPositionMs }
-        ?: book.chapters.firstOrNull()
+    val currentChapter = chapters.lastOrNull { it.startTimeMs <= currentPositionMs }
+        ?: chapters.firstOrNull()
 
     val activity = LocalContext.current as? Activity
+    LaunchedEffect(book.uri) {
+        viewModel.connect(book)
+    }
     DisposableEffect(book.uri) {
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        viewModel.connect(book)
         onDispose {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
@@ -88,7 +92,8 @@ fun PlayerScreen(
             PlayerProgress(
                 currentChapter = currentChapter,
                 currentPositionMs = currentPositionMs,
-                isPlaying = isPlaying
+                isPlaying = isPlaying,
+                onSeek = { viewModel.seekTo(it) }
             )
             Spacer(modifier = Modifier.weight(1f))
             PlayerControls(
@@ -111,7 +116,7 @@ fun PlayerScreen(
 
     if (isChapterSheetOpen) {
         ChapterSheet(
-            chapters = book.chapters,
+            chapters = chapters,
             currentChapter = currentChapter,
             onChapterClick = { chapter ->
                 viewModel.seekTo(chapter.startTimeMs)
@@ -183,7 +188,8 @@ private fun PlayerBookInfo(book: Audiobook, currentPositionMs: Long, duration: L
 private fun PlayerProgress(
     currentChapter: Chapter?,
     currentPositionMs: Long,
-    isPlaying: Boolean
+    isPlaying: Boolean,
+    onSeek: (Long) -> Unit
 ) {
     val chapterProgress = if (currentChapter != null && currentChapter.durationMs > 0) {
         ((currentPositionMs - currentChapter.startTimeMs).toFloat() / currentChapter.durationMs).coerceIn(0f, 1f)
@@ -206,6 +212,18 @@ private fun PlayerProgress(
             progress = { chapterProgress },
             modifier = Modifier.fillMaxWidth(),
             amplitude = { animatedAmplitude },
+        )
+        Slider(
+            value = chapterProgress,
+            onValueChange = { value ->
+                val chapterStart = currentChapter?.startTimeMs ?: 0L
+                val chapterDuration = currentChapter?.durationMs ?: 0L
+                onSeek(chapterStart + (value * chapterDuration).toLong())
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(24.dp)
+                .alpha(0f)
         )
         Spacer(modifier = Modifier.height(8.dp))
         Row(

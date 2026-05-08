@@ -12,7 +12,8 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Vorrin">
+        android:theme="@style/Theme.Vorrin"
+        android:largeHeap="true">
         <service
             android:name=".service.AudiobookService"
             android:foregroundServiceType="mediaPlayback"

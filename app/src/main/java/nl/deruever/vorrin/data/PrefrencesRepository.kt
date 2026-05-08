@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "vorrin_prefs")
@@ -26,11 +27,15 @@ class PreferencesRepository(private val context: Context) {
         prefs[ACTIVE_BOOK_URI_KEY]
     }
 
+    private fun bookPositionKey(uri: String) = stringPreferencesKey("position_${uri.hashCode()}")
+
+
     suspend fun saveFolderUri(uri: String) {
         context.dataStore.edit { prefs ->
             prefs[FOLDER_URI_KEY] = uri
         }
     }
+
     suspend fun saveActiveBookUri(uri: String) {
         context.dataStore.edit { prefs ->
             prefs[ACTIVE_BOOK_URI_KEY] = uri
@@ -41,5 +46,17 @@ class PreferencesRepository(private val context: Context) {
         context.dataStore.edit { prefs ->
             prefs.remove(FOLDER_URI_KEY)
         }
+    }
+
+    suspend fun saveBookPosition(uri: String, positionMs: Long) {
+        context.dataStore.edit { prefs ->
+            prefs[bookPositionKey(uri)] = positionMs.toString()
+        }
+    }
+
+    suspend fun getBookPosition(uri: String): Long {
+        return context.dataStore.data.map { prefs ->
+            prefs[bookPositionKey(uri)]?.toLongOrNull() ?: 0L
+        }.first()
     }
 }
