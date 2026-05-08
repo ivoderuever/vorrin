@@ -25,6 +25,7 @@ data class PlayerRoute(val bookId: String)
 @Composable
 fun VorrinNavigation() {
     val navController = rememberNavController()
+    val libraryViewModel: LibraryViewModel = viewModel()
 
     NavHost(
         navController = navController,
@@ -36,10 +37,10 @@ fun VorrinNavigation() {
     ) {
 
         composable<LibraryRoute> {
-            val viewModel: LibraryViewModel = viewModel()
             LibraryScreen(
+                viewModel = libraryViewModel,
                 onBookClick = { book ->
-                    viewModel.setActiveBook(book)
+                    libraryViewModel.setActiveBook(book)
                     navController.navigate(PlayerRoute(bookId = book.id))
                 }
             )
@@ -48,7 +49,8 @@ fun VorrinNavigation() {
         composable<PlayerRoute> { backStackEntry ->
             val args = backStackEntry.toRoute<PlayerRoute>()
 
-            val book = nl.deruever.vorrin.data.FakeData.books.find { it.id == args.bookId }
+            val book = libraryViewModel.books.value.find { it.id == args.bookId }
+                ?: nl.deruever.vorrin.data.FakeData.books.find { it.id == args.bookId }
                 ?: nl.deruever.vorrin.data.FakeData.books[0]
 
             PlayerScreen(

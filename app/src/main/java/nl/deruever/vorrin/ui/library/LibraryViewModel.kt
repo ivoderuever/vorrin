@@ -8,9 +8,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 import nl.deruever.vorrin.data.Audiobook
 import nl.deruever.vorrin.data.BookRepository
 import nl.deruever.vorrin.data.PreferencesRepository
+
 
 class LibraryViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -29,6 +31,9 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val _activeBook = MutableStateFlow<Audiobook?>(null)
     val activeBook: StateFlow<Audiobook?> = _activeBook.asStateFlow()
 
+    private val _isInitializing = MutableStateFlow(true)
+    val isInitializing: StateFlow<Boolean> = _isInitializing.asStateFlow()
+
     init {
         viewModelScope.launch {
             preferencesRepository.folderUri.collect { uri ->
@@ -36,6 +41,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 if (uri != null) {
                     loadBooks(Uri.parse(uri))
                 }
+                _isInitializing.value = false
             }
         }
         viewModelScope.launch {
@@ -55,7 +61,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun loadBooks(uri: Uri) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _isLoading.value = true
             _books.value = bookRepository.getBooksFromFolder(uri)
             _isLoading.value = false

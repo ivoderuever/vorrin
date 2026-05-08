@@ -14,7 +14,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
 import nl.deruever.vorrin.data.Audiobook
-import nl.deruever.vorrin.data.FakeData
 import nl.deruever.vorrin.utils.formatDuration
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,32 +26,42 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.ui.graphics.Color
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import coil.compose.AsyncImage
 import nl.deruever.vorrin.data.Chapter
 
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun PlayerScreen(
-    book: Audiobook = FakeData.books[0],
+    book: Audiobook,
     onBackClick: () -> Unit = {}
 ) {
-    val activity = LocalContext.current as? Activity
-    DisposableEffect(Unit) {
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        onDispose {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
-    }
+    val viewModel: PlayerViewModel = viewModel()
+    val isPlaying by viewModel.isPlaying.collectAsState()
+    val currentPositionMs by viewModel.currentPositionMs.collectAsState()
+    val isReady by viewModel.isReady.collectAsState()
+    val duration by viewModel.duration.collectAsState()
 
-    // Fake state for now
-    var isPlaying by remember { mutableStateOf(false) }
     var isChapterSheetOpen by remember { mutableStateOf(false) }
-    var currentPositionMs by remember { mutableLongStateOf(book.lastPosition) }
     var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
     var skipDurationSeconds by remember { mutableIntStateOf(30) }
 
     val currentChapter = book.chapters.lastOrNull { it.startTimeMs <= currentPositionMs }
         ?: book.chapters.firstOrNull()
+
+    val activity = LocalContext.current as? Activity
+    DisposableEffect(book.uri) {
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        viewModel.connect(book)
+        onDispose {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
 
     val layoutDirection = LocalLayoutDirection.current
 
@@ -72,9 +81,9 @@ fun PlayerScreen(
         ) {
             PlayerTopBar(onBackClick = onBackClick)
             Spacer(modifier = Modifier.height(24.dp))
-            PlayerCover()
+            PlayerCover(book.title, book.coverArt)
             Spacer(modifier = Modifier.height(30.dp))
-            PlayerBookInfo(book = book)
+            PlayerBookInfo(book = book, currentPositionMs = currentPositionMs, duration = duration)
             Spacer(modifier = Modifier.height(32.dp))
             PlayerProgress(
                 currentChapter = currentChapter,
@@ -86,11 +95,11 @@ fun PlayerScreen(
                 isPlaying = isPlaying,
                 skipDurationSeconds = skipDurationSeconds,
                 playbackSpeed = playbackSpeed,
-                onPlayPause = { isPlaying = !isPlaying },
-                onSkipBack = { currentPositionMs = (currentPositionMs - skipDurationSeconds * 1000L).coerceAtLeast(0L) },
-                onSkipForward = { currentPositionMs = (currentPositionMs + skipDurationSeconds * 1000L).coerceAtMost(book.duration) },
-                onSpeedClick = { /* settings later */ },
-                onSkipDurationClick = { /* settings later */ }
+                onPlayPause = { viewModel.playPause() },
+                onSkipBack = { viewModel.skipBack(skipDurationSeconds) },
+                onSkipForward = { viewModel.skipForward(skipDurationSeconds) },
+                onSpeedClick = { },
+                onSkipDurationClick = { }
             )
             Spacer(modifier = Modifier.height(16.dp))
             PlayerChapterBar(
@@ -105,7 +114,7 @@ fun PlayerScreen(
             chapters = book.chapters,
             currentChapter = currentChapter,
             onChapterClick = { chapter ->
-                currentPositionMs = chapter.startTimeMs
+                viewModel.seekTo(chapter.startTimeMs)
                 isChapterSheetOpen = false
             },
             onDismiss = { isChapterSheetOpen = false }
@@ -129,16 +138,27 @@ private fun PlayerTopBar(onBackClick: () -> Unit) {
 }
 
 @Composable
-private fun PlayerCover() {
-    Surface(
-        modifier = Modifier.size(280.dp),
-        shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.primaryContainer
-    ) {}
+private fun PlayerCover(title: String, coverArt: ByteArray? = null) {
+    AsyncImage(
+        model = coverArt,
+        contentDescription = "Cover art for $title",
+        modifier = Modifier
+            .size(280.dp)
+            .clip(RoundedCornerShape(24.dp)),
+        contentScale = ContentScale.Crop,
+        fallback = painterResource(android.R.drawable.ic_menu_gallery),
+        error = painterResource(android.R.drawable.ic_menu_gallery)
+    )
 }
 
 @Composable
-private fun PlayerBookInfo(book: Audiobook) {
+private fun PlayerBookInfo(book: Audiobook, currentPositionMs: Long, duration: Long) {
+    val effectiveDuration = if (duration > 0) duration else book.duration
+    val timeLeft = effectiveDuration - currentPositionMs
+    val progressPercent = if (effectiveDuration > 0)
+        ((currentPositionMs.toFloat() / effectiveDuration) * 100).toInt()
+    else 0
+
     Text(
         text = book.title,
         style = MaterialTheme.typography.titleLarge,
@@ -152,7 +172,7 @@ private fun PlayerBookInfo(book: Audiobook) {
     )
     Spacer(modifier = Modifier.height(10.dp))
     Text(
-        text = "${book.progressPercent}% - ${formatDuration(book.timeLeft)} remaining",
+        text = "$progressPercent% · ${formatDuration(timeLeft)} remaining",
         style = MaterialTheme.typography.bodyLarge,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )

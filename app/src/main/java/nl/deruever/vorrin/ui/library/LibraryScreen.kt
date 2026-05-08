@@ -38,21 +38,30 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.lifecycle.viewmodel.compose.viewModel
 import nl.deruever.vorrin.ui.components.FolderPickButton
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import coil.compose.AsyncImage
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun LibraryScreen(onBookClick: (Audiobook) -> Unit) {
-    val viewModel: LibraryViewModel = viewModel()
+fun LibraryScreen(
+    viewModel: LibraryViewModel = viewModel(),
+    onBookClick: (Audiobook) -> Unit
+) {
     val books by viewModel.books.collectAsState()
     val folderUri by viewModel.folderUri.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val activeBook by viewModel.activeBook.collectAsState()
+    val isInitializing by viewModel.isInitializing.collectAsState()
     val layoutDirection = LocalLayoutDirection.current
     var isPlaying by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
-            if (folderUri != null && books.isNotEmpty()) {
+            if (folderUri != null) {
                 TopAppBar(title = { Text("Vorrin") })
             }
         },
@@ -76,7 +85,7 @@ fun LibraryScreen(onBookClick: (Audiobook) -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             when {
-                isLoading -> LoadingIndicator()
+                isInitializing || isLoading -> LoadingIndicator()
                 folderUri == null -> IntroApp(onFolderPicked = { viewModel.onFolderPicked(it) })
                 books.isEmpty() -> NoBooks(onFolderPicked = { viewModel.onFolderPicked(it) })
                 else -> LazyColumn(
@@ -99,44 +108,43 @@ fun BookItem(book: Audiobook, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() },
-        shape = RoundedCornerShape(16.dp),
+        shape = MaterialTheme.shapes.medium, // Use theme shapes for consistency
     ) {
         Row(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier.padding(16.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Cover art placeholder
-            Surface(
+            AsyncImage(
+                model = book.coverArt,
+                contentDescription = "Cover art for ${book.title}",
                 modifier = Modifier
                     .size(64.dp)
                     .clip(RoundedCornerShape(8.dp)),
-                color = MaterialTheme.colorScheme.primaryContainer
-            ) {}
+                contentScale = ContentScale.Crop,
+                fallback = painterResource(android.R.drawable.ic_menu_gallery),
+                error = painterResource(android.R.drawable.ic_menu_gallery)
+            )
 
-            // Book info
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = book.title,
-                    style = MaterialTheme.typography.titleLarge,
-                    maxLines = 1,
-//                    overflow = TextOverflow.Ellipsis
-                    modifier = Modifier.basicMarquee()
-
+                    style = MaterialTheme.typography.titleMedium, // Standardized typography
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = book.author,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (book.progressPercent != 0 && !book.isFinished) {
-                Spacer(modifier = Modifier.height(12.dp))
+
+                if (book.progressPercent in 1..99) {
+                    Spacer(modifier = Modifier.height(8.dp))
                     LinearProgressIndicator(
                         progress = { book.progressPercent / 100f },
                         modifier = Modifier.fillMaxWidth(),
-                        drawStopIndicator = {},
-                        trackColor = MaterialTheme.colorScheme.outlineVariant
+                        strokeCap = StrokeCap.Round
                     )
                 }
             }
@@ -201,13 +209,22 @@ private fun MiniPlayer(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            val coverBitmap = remember(book.coverArt) {
+                book.coverArt?.let {
+                    android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size)
+                }
+            }
             // Cover art
-            Surface(
+            AsyncImage(
+                model = book.coverArt,
+                contentDescription = "Cover art for ${book.title}",
                 modifier = Modifier
                     .size(48.dp)
-                    .clip(RoundedCornerShape(12.dp)),
-                color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f)
-            ) {}
+                    .clip(RoundedCornerShape(8.dp)),
+                contentScale = ContentScale.Crop,
+                fallback = painterResource(android.R.drawable.ic_menu_gallery),
+                error = painterResource(android.R.drawable.ic_menu_gallery)
+            )
 
             // Title and author
             Column(modifier = Modifier.weight(1f)) {
