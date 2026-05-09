@@ -52,13 +52,16 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         }
 
         viewModelScope.launch {
-            preferencesRepository.folderUri.collect { uri ->
-                _folderUri.value = uri
-                if (uri != null) {
-                    syncBooks(Uri.parse(uri))
+            preferencesRepository.folderUri
+                .collect { uri ->
+                    if (_folderUri.value != uri) {
+                        _folderUri.value = uri
+                        if (uri != null) {
+                            syncBooks(Uri.parse(uri))
+                        }
+                    }
+                    _isInitializing.value = false
                 }
-                _isInitializing.value = false
-            }
         }
 
         viewModelScope.launch {
@@ -74,7 +77,6 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     fun onFolderPicked(uri: Uri) {
         viewModelScope.launch {
             preferencesRepository.saveFolderUri(uri.toString())
-            syncBooks(uri)
         }
     }
 

@@ -9,6 +9,8 @@ import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import nl.deruever.vorrin.data.db.BookDao
 import nl.deruever.vorrin.data.db.BookEntity
@@ -19,11 +21,14 @@ class BookRepository(
     private val context: Context,
     private val bookDao: BookDao
 ) {
+    private val syncMutex = Mutex()
 
     // Observe all books from database as a Flow
     fun getBooksFlow(): Flow<List<Audiobook>> {
         return bookDao.getAllBooks().map { entities ->
             entities.map { entity ->
+                // Note: This is still doing N+1 queries. 
+                // In a future update, consider using Room @Relation for better performance.
                 val chapters = bookDao.getChaptersForBook(entity.id)
                 entity.toAudiobook(chapters)
             }
@@ -31,27 +36,29 @@ class BookRepository(
     }
 
     // Scan folder, index new books, remove deleted ones
-    suspend fun syncFolder(folderUri: Uri) = withContext(Dispatchers.IO) {
-        val folder = DocumentFile.fromTreeUri(context, folderUri) ?: return@withContext
+    suspend fun syncFolder(folderUri: Uri) = syncMutex.withLock {
+        withContext(Dispatchers.IO) {
+            val folder = DocumentFile.fromTreeUri(context, folderUri) ?: return@withContext
 
-        val filesOnDisk = folder.listFiles()
-            .filter { it.isFile && it.name?.lowercase()?.endsWith(".m4b") == true }
-            .associate { it.uri.toString() to it }
+            val filesOnDisk = folder.listFiles()
+                .filter { it.isFile && it.name?.lowercase()?.endsWith(".m4b") == true }
+                .associate { it.uri.toString() to it }
 
-        val urisInDb = bookDao.getAllBookUris().toSet()
+            val urisInDb = bookDao.getAllBookUris().toSet()
 
-        // Remove deleted books
-        urisInDb.filterNot { filesOnDisk.containsKey(it) }.forEach { uri ->
-            val book = bookDao.getBookByUri(uri)
-            if (book != null) {
-                bookDao.deleteChaptersForBook(book.id)
-                bookDao.deleteBook(book.id)
+            // Remove deleted books
+            urisInDb.filterNot { filesOnDisk.containsKey(it) }.forEach { uri ->
+                val book = bookDao.getBookByUri(uri)
+                if (book != null) {
+                    bookDao.deleteChaptersForBook(book.id)
+                    bookDao.deleteBook(book.id)
+                }
             }
-        }
 
-        // Index new books
-        filesOnDisk.filterNot { urisInDb.contains(it.key) }.forEach { (uriString, _) ->
-            indexBook(Uri.parse(uriString))
+            // Index new books
+            filesOnDisk.filterNot { urisInDb.contains(it.key) }.forEach { (uriString, _) ->
+                indexBook(Uri.parse(uriString))
+            }
         }
     }
 
