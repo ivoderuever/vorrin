@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    id("com.google.devtools.ksp")
 }
 
 android {
@@ -67,6 +68,11 @@ dependencies {
 
     // DataStore - persist playback position and settings
     implementation(libs.androidx.datastore.preferences)
+
+    // Room - local database
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
 
     // Navigation - switching between library and player screens
     implementation(libs.androidx.navigation.compose)

@@ -44,11 +44,13 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import coil.compose.AsyncImage
+import nl.deruever.vorrin.ui.player.PlayerViewModel
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun LibraryScreen(
     viewModel: LibraryViewModel = viewModel(),
+    playerViewModel: PlayerViewModel,
     onBookClick: (Audiobook) -> Unit
 ) {
     val books by viewModel.books.collectAsState()
@@ -57,7 +59,7 @@ fun LibraryScreen(
     val activeBook by viewModel.activeBook.collectAsState()
     val isInitializing by viewModel.isInitializing.collectAsState()
     val layoutDirection = LocalLayoutDirection.current
-    var isPlaying by remember { mutableStateOf(false) }
+    val isPlaying by playerViewModel.isPlaying.collectAsState()
 
     Scaffold(
         topBar = {
@@ -71,7 +73,7 @@ fun LibraryScreen(
                 MiniPlayer(
                     book = bookToShow,
                     isPlaying = isPlaying,
-                    onPlayPause = { isPlaying = !isPlaying },
+                    onPlayPause = { playerViewModel.playPause() },
                     onClick = { onBookClick(bookToShow) }
                 )
             }

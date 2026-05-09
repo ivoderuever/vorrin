@@ -15,6 +15,7 @@ import kotlinx.serialization.Serializable
 import nl.deruever.vorrin.ui.library.LibraryScreen
 import nl.deruever.vorrin.ui.library.LibraryViewModel
 import nl.deruever.vorrin.ui.player.PlayerScreen
+import nl.deruever.vorrin.ui.player.PlayerViewModel
 
 @Serializable
 object LibraryRoute
@@ -26,6 +27,7 @@ data class PlayerRoute(val bookId: String)
 fun VorrinNavigation() {
     val navController = rememberNavController()
     val libraryViewModel: LibraryViewModel = viewModel()
+    val playerViewModel: PlayerViewModel = viewModel()
 
     NavHost(
         navController = navController,
@@ -35,10 +37,10 @@ fun VorrinNavigation() {
         popEnterTransition = { slideInHorizontally { -it } + fadeIn() },
         popExitTransition = { slideOutHorizontally { it } + fadeOut() },
     ) {
-
         composable<LibraryRoute> {
             LibraryScreen(
                 viewModel = libraryViewModel,
+                playerViewModel = playerViewModel,
                 onBookClick = { book ->
                     libraryViewModel.setActiveBook(book)
                     navController.navigate(PlayerRoute(bookId = book.id))
@@ -48,13 +50,12 @@ fun VorrinNavigation() {
 
         composable<PlayerRoute> { backStackEntry ->
             val args = backStackEntry.toRoute<PlayerRoute>()
-
             val book = libraryViewModel.books.value.find { it.id == args.bookId }
-                ?: nl.deruever.vorrin.data.FakeData.books.find { it.id == args.bookId }
-                ?: nl.deruever.vorrin.data.FakeData.books[0]
+                ?: return@composable
 
             PlayerScreen(
                 book = book,
+                playerViewModel = playerViewModel,
                 onBackClick = { navController.popBackStack() }
             )
         }

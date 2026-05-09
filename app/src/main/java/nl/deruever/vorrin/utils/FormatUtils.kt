@@ -1,7 +1,17 @@
 package nl.deruever.vorrin.utils
 
 fun formatDuration(ms: Long): String {
-    val hours = ms / 3_600_000
-    val minutes = (ms % 3_600_000) / 60_000
-    return if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m"
+    val totalSeconds = ms / 1000
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    
+    val secStr = seconds.toString().padStart(2, '0')
+    val minStr = minutes.toString().padStart(2, '0')
+    
+    return if (hours > 0) {
+        "$hours:$minStr:$secStr"
+    } else {
+        "$minStr:$secStr"
+    }
 }

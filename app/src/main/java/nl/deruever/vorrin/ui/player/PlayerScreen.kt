@@ -40,25 +40,24 @@ import nl.deruever.vorrin.data.Chapter
 @Composable
 fun PlayerScreen(
     book: Audiobook,
+    playerViewModel: PlayerViewModel,
     onBackClick: () -> Unit = {}
 ) {
-    val viewModel: PlayerViewModel = viewModel()
-    val isPlaying by viewModel.isPlaying.collectAsState()
-    val currentPositionMs by viewModel.currentPositionMs.collectAsState()
-    val isReady by viewModel.isReady.collectAsState()
-    val duration by viewModel.duration.collectAsState()
-    val chapters by viewModel.chapters.collectAsState()
+    val isPlaying by playerViewModel.isPlaying.collectAsState()
+    val currentPositionMs by playerViewModel.currentPositionMs.collectAsState()
+    val isReady by playerViewModel.isReady.collectAsState()
+    val duration by playerViewModel.duration.collectAsState()
 
     var isChapterSheetOpen by remember { mutableStateOf(false) }
     var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
     var skipDurationSeconds by remember { mutableIntStateOf(30) }
 
-    val currentChapter = chapters.lastOrNull { it.startTimeMs <= currentPositionMs }
-        ?: chapters.firstOrNull()
+    val currentChapter = book.chapters.lastOrNull { it.startTimeMs <= currentPositionMs }
+        ?: book.chapters.firstOrNull()
 
     val activity = LocalContext.current as? Activity
     LaunchedEffect(book.uri) {
-        viewModel.connect(book)
+        playerViewModel.connect(book)
     }
     DisposableEffect(book.uri) {
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -83,7 +82,10 @@ fun PlayerScreen(
                 ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            PlayerTopBar(onBackClick = onBackClick)
+            PlayerTopBar(onBackClick = {
+                playerViewModel.savePosition()
+                onBackClick()
+            })
             Spacer(modifier = Modifier.height(24.dp))
             PlayerCover(book.title, book.coverArt)
             Spacer(modifier = Modifier.height(30.dp))
@@ -93,16 +95,16 @@ fun PlayerScreen(
                 currentChapter = currentChapter,
                 currentPositionMs = currentPositionMs,
                 isPlaying = isPlaying,
-                onSeek = { viewModel.seekTo(it) }
+                onSeek = { playerViewModel.seekTo(it) }
             )
             Spacer(modifier = Modifier.weight(1f))
             PlayerControls(
                 isPlaying = isPlaying,
                 skipDurationSeconds = skipDurationSeconds,
                 playbackSpeed = playbackSpeed,
-                onPlayPause = { viewModel.playPause() },
-                onSkipBack = { viewModel.skipBack(skipDurationSeconds) },
-                onSkipForward = { viewModel.skipForward(skipDurationSeconds) },
+                onPlayPause = { playerViewModel.playPause() },
+                onSkipBack = { playerViewModel.skipBack(skipDurationSeconds) },
+                onSkipForward = { playerViewModel.skipForward(skipDurationSeconds) },
                 onSpeedClick = { },
                 onSkipDurationClick = { }
             )
@@ -116,10 +118,10 @@ fun PlayerScreen(
 
     if (isChapterSheetOpen) {
         ChapterSheet(
-            chapters = chapters,
+            chapters = book.chapters,
             currentChapter = currentChapter,
             onChapterClick = { chapter ->
-                viewModel.seekTo(chapter.startTimeMs)
+                playerViewModel.seekTo(chapter.startTimeMs)
                 isChapterSheetOpen = false
             },
             onDismiss = { isChapterSheetOpen = false }
@@ -191,45 +193,85 @@ private fun PlayerProgress(
     isPlaying: Boolean,
     onSeek: (Long) -> Unit
 ) {
-    val chapterProgress = if (currentChapter != null && currentChapter.durationMs > 0) {
-        ((currentPositionMs - currentChapter.startTimeMs).toFloat() / currentChapter.durationMs).coerceIn(0f, 1f)
-    } else 0f
+    var draggingProgress by remember { mutableStateOf<Float?>(null) }
+    
+    val chapterStart = currentChapter?.startTimeMs ?: 0L
+    val chapterDuration = currentChapter?.durationMs ?: 0L
+    
+    // Smooth progress interpolation logic
+    var lastUpdateMs by remember { mutableLongStateOf(currentPositionMs) }
+    var lastUpdateTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    val chapterElapsed = if (currentChapter != null) currentPositionMs - currentChapter.startTimeMs else 0L
-    val chapterRemaining = if (currentChapter != null) currentChapter.endTimeMs - currentPositionMs else 0L
+    LaunchedEffect(currentPositionMs) {
+        lastUpdateMs = currentPositionMs
+        lastUpdateTime = System.currentTimeMillis()
+    }
 
-    val animatedAmplitude by animateFloatAsState(
-        targetValue = if (isPlaying) 1f else 0f,
-        label = "waveAmplitude"
-    )
+    var smoothProgress by remember { mutableFloatStateOf(0f) }
+    
+    LaunchedEffect(isPlaying, lastUpdateMs, draggingProgress, chapterStart, chapterDuration) {
+        if (draggingProgress != null) {
+            smoothProgress = draggingProgress!!
+        } else {
+            if (isPlaying) {
+                while (true) {
+                    val timeSinceUpdate = System.currentTimeMillis() - lastUpdateTime
+                    val estimatedPosition = lastUpdateMs + timeSinceUpdate
+                    smoothProgress = if (chapterDuration > 0) {
+                        ((estimatedPosition - chapterStart).toFloat() / chapterDuration).coerceIn(0f, 1f)
+                    } else 0f
+                    kotlinx.coroutines.delay(16)
+                }
+            } else {
+                smoothProgress = if (chapterDuration > 0) {
+                    ((lastUpdateMs - chapterStart).toFloat() / chapterDuration).coerceIn(0f, 1f)
+                } else 0f
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp)
     ) {
-        LinearWavyProgressIndicator(
-            progress = { chapterProgress },
-            modifier = Modifier.fillMaxWidth(),
-            amplitude = { animatedAmplitude },
-        )
         Slider(
-            value = chapterProgress,
-            onValueChange = { value ->
-                val chapterStart = currentChapter?.startTimeMs ?: 0L
-                val chapterDuration = currentChapter?.durationMs ?: 0L
-                onSeek(chapterStart + (value * chapterDuration).toLong())
+            value = smoothProgress,
+            onValueChange = { draggingProgress = it },
+            onValueChangeFinished = {
+                draggingProgress?.let {
+                    val targetMs = chapterStart + (it * chapterDuration).toLong()
+                    onSeek(targetMs)
+                    // Optimistically update interpolation anchors to prevent jump-back
+                    lastUpdateMs = targetMs
+                    lastUpdateTime = System.currentTimeMillis()
+                }
+                draggingProgress = null
             },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(24.dp)
-                .alpha(0f)
+            track = { sliderState ->
+                LinearWavyProgressIndicator(
+                    progress = { sliderState.value },
+                    modifier = Modifier.fillMaxWidth(),
+                    amplitude = { progress -> 
+                        if (isPlaying) WavyProgressIndicatorDefaults.indicatorAmplitude(progress) else 0f
+                    }
+                )
+            }
         )
         Spacer(modifier = Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
+            val currentMs = if (draggingProgress != null) {
+                chapterStart + (draggingProgress!! * chapterDuration).toLong()
+            } else {
+                chapterStart + (smoothProgress * chapterDuration).toLong()
+            }
+            
+            val chapterElapsed = (currentMs - chapterStart).coerceAtLeast(0)
+            val chapterRemaining = (chapterDuration - chapterElapsed).coerceAtLeast(0)
+
             Text(
                 text = formatDuration(chapterElapsed),
                 style = MaterialTheme.typography.bodyMedium,
