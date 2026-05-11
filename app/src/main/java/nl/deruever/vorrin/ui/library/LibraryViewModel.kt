@@ -4,6 +4,8 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -80,9 +82,11 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private suspend fun syncBooks(uri: Uri) {
+    private suspend fun syncBooks(uri: Uri) = coroutineScope {
         _isLoading.value = true
+        val minLoadingTime = launch { delay(1_500) }
         bookRepository.syncFolder(uri)
+        minLoadingTime.join()
         _isLoading.value = false
     }
 
@@ -90,6 +94,13 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         _activeBook.value = book
         viewModelScope.launch {
             preferencesRepository.saveActiveBookUri(book.uri)
+        }
+    }
+
+    fun refresh() {
+        viewModelScope.launch {
+            val uri = _folderUri.value ?: return@launch
+            syncBooks(Uri.parse(uri))
         }
     }
 }

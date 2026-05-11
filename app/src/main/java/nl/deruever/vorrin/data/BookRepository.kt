@@ -1,11 +1,14 @@
 package nl.deruever.vorrin.data
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
+import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -74,7 +77,27 @@ class BookRepository(
                 ?: "Unknown"
             val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull() ?: 0L
-            val coverArt = retriever.embeddedPicture
+            
+            // Downscale cover art during indexing to save space and avoid Bluetooth timeouts
+            val rawCoverArt = retriever.embeddedPicture
+            val coverArt = rawCoverArt?.let { data ->
+                try {
+                    if (data.size > 100_000) {
+                        val bitmap = BitmapFactory.decodeByteArray(data, 0, data.size)
+                        if (bitmap != null && (bitmap.width > 600 || bitmap.height > 600)) {
+                            val ratio = bitmap.width.toFloat() / bitmap.height.toFloat()
+                            val width = if (ratio > 1) 600 else (600 * ratio).toInt()
+                            val height = if (ratio > 1) (600 / ratio).toInt() else 600
+                            val scaled = Bitmap.createScaledBitmap(bitmap, width, height, true)
+                            val stream = ByteArrayOutputStream()
+                            scaled.compress(Bitmap.CompressFormat.JPEG, 80, stream)
+                            stream.toByteArray()
+                        } else data
+                    } else data
+                } catch (e: Exception) {
+                    data
+                }
+            }
 
             val entity = BookEntity(
                 uri = uri.toString(),

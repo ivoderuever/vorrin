@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.material3.Icon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.shape.CircleShape
@@ -29,22 +28,20 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.text.style.TextOverflow
 import nl.deruever.vorrin.data.Audiobook
 import android.net.Uri
-import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.rounded.Headphones
-import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.lifecycle.viewmodel.compose.viewModel
 import nl.deruever.vorrin.ui.components.FolderPickButton
-import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import coil.compose.AsyncImage
 import nl.deruever.vorrin.ui.player.PlayerViewModel
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -60,6 +57,7 @@ fun LibraryScreen(
     val isInitializing by viewModel.isInitializing.collectAsState()
     val layoutDirection = LocalLayoutDirection.current
     val isPlaying by playerViewModel.isPlaying.collectAsState()
+    val isRefreshing by viewModel.isLoading.collectAsState()
 
     Scaffold(
         topBar = {
@@ -68,7 +66,7 @@ fun LibraryScreen(
             }
         },
         bottomBar = {
-            val bookToShow = activeBook ?: books.firstOrNull { !it.isFinished }
+            val bookToShow = activeBook?.takeIf { !it.isFinished }
             if (bookToShow != null) {
                 MiniPlayer(
                     book = bookToShow,
@@ -90,13 +88,23 @@ fun LibraryScreen(
                 isInitializing || isLoading -> LoadingIndicator()
                 folderUri == null -> IntroApp(onFolderPicked = { viewModel.onFolderPicked(it) })
                 books.isEmpty() -> NoBooks(onFolderPicked = { viewModel.onFolderPicked(it) })
-                else -> LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    items(books) { book ->
-                        BookItem(book = book, onClick = { onBookClick(book) })
+                else -> {
+                    val pullState = rememberPullToRefreshState()
+                    PullToRefreshBox(
+                        isRefreshing = isRefreshing,
+                        onRefresh = { viewModel.refresh() },
+                        state = pullState,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            items(books) { book ->
+                                BookItem(book = book, onClick = { onBookClick(book) })
+                            }
+                        }
                     }
                 }
             }
@@ -211,11 +219,6 @@ private fun MiniPlayer(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            val coverBitmap = remember(book.coverArt) {
-                book.coverArt?.let {
-                    android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size)
-                }
-            }
             // Cover art
             AsyncImage(
                 model = book.coverArt,

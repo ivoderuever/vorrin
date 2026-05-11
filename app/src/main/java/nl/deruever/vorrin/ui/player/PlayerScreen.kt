@@ -100,6 +100,7 @@ fun PlayerScreen(
             Spacer(modifier = Modifier.weight(1f))
             PlayerControls(
                 isPlaying = isPlaying,
+                isReady = isReady,
                 skipDurationSeconds = skipDurationSeconds,
                 playbackSpeed = playbackSpeed,
                 onPlayPause = { playerViewModel.playPause() },
@@ -286,9 +287,11 @@ private fun PlayerProgress(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun PlayerControls(
     isPlaying: Boolean,
+    isReady: Boolean,
     skipDurationSeconds: Int,
     playbackSpeed: Float,
     onPlayPause: () -> Unit,
@@ -310,6 +313,7 @@ private fun PlayerControls(
             // Skip back
             FilledTonalIconButton(
                 onClick = onSkipBack,
+                enabled = isReady,
                 modifier = Modifier.size(64.dp),
                 shape = RoundedCornerShape(20.dp)
             ) {
@@ -334,16 +338,21 @@ private fun PlayerControls(
                     .width(120.dp),
                 shape = RoundedCornerShape(20.dp),
             ) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
-                    modifier = Modifier.size(32.dp)
-                )
+                if (!isReady) {
+                    LoadingIndicator(modifier = Modifier.size(24.dp))
+                } else {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        contentDescription = if (isPlaying) "Pause" else "Play",
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
             }
 
             // Skip forward
             FilledTonalIconButton(
                 onClick = onSkipForward,
+                enabled = isReady,
                 modifier = Modifier.size(64.dp),
                 shape = RoundedCornerShape(20.dp)
             ) {

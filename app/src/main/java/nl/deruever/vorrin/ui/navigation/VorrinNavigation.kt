@@ -5,13 +5,17 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import kotlinx.serialization.Serializable
-
+import nl.deruever.vorrin.MainActivity
 import nl.deruever.vorrin.ui.library.LibraryScreen
 import nl.deruever.vorrin.ui.library.LibraryViewModel
 import nl.deruever.vorrin.ui.player.PlayerScreen
@@ -28,6 +32,21 @@ fun VorrinNavigation() {
     val navController = rememberNavController()
     val libraryViewModel: LibraryViewModel = viewModel()
     val playerViewModel: PlayerViewModel = viewModel()
+
+    val activity = LocalContext.current as MainActivity
+    val openPlayer by activity.openPlayerEvent.collectAsState()
+
+    LaunchedEffect(openPlayer) {
+        if (openPlayer) {
+            val activeBook = libraryViewModel.activeBook.value
+            if (activeBook != null) {
+                navController.navigate(PlayerRoute(bookId = activeBook.id)) {
+                    launchSingleTop = true
+                }
+            }
+            activity.consumeOpenPlayerEvent()
+        }
+    }
 
     NavHost(
         navController = navController,
