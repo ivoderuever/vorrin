@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.calculateEndPadding
@@ -17,22 +18,22 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBackIosNew
-import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Replay
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearWavyProgressIndicator
@@ -61,8 +62,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -124,33 +125,38 @@ fun PlayerScreen(
                 playerViewModel.savePosition()
                 onBackClick()
             })
-            Spacer(modifier = Modifier.height(24.dp))
             PlayerCover(book.title, book.coverArt)
-            Spacer(modifier = Modifier.height(30.dp))
+            Spacer(modifier = Modifier.height(24.dp))
             PlayerBookInfo(book = book, currentPositionMs = currentPositionMs, duration = duration)
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(36.dp))
+            PlayerChapterBar(
+                currentChapter = currentChapter,
+                onClick = { isChapterSheetOpen = true }
+            )
+            Spacer(modifier = Modifier.height(4.dp))
             PlayerProgress(
                 currentChapter = currentChapter,
                 currentPositionMs = currentPositionMs,
                 isPlaying = isPlaying,
                 onSeek = { playerViewModel.seekTo(it) }
             )
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(42.dp))
             PlayerControls(
                 isPlaying = isPlaying,
                 isReady = isReady,
                 skipDurationSeconds = skipDurationSeconds,
-                playbackSpeed = playbackSpeed,
                 onPlayPause = { playerViewModel.playPause() },
                 onSkipBack = { playerViewModel.skipBack(skipDurationSeconds) },
                 onSkipForward = { playerViewModel.skipForward(skipDurationSeconds) },
-                onSpeedClick = { },
-                onSkipDurationClick = { }
+                onChapterBack = {},
+                onChapterForward = {}
             )
             Spacer(modifier = Modifier.height(16.dp))
-            PlayerChapterBar(
-                currentChapter = currentChapter,
-                onClick = { isChapterSheetOpen = true }
+            SpeedAndSkipSheetButtons(
+                skipDurationSeconds = skipDurationSeconds,
+                playbackSpeed = playbackSpeed,
+                onSpeedClick = { },
+                onSkipDurationClick = { }
             )
         }
     }
@@ -281,7 +287,6 @@ private fun PlayerProgress(
                 draggingProgress?.let {
                     val targetMs = chapterStart + (it * chapterDuration).toLong()
                     onSeek(targetMs)
-                    // Optimistically update interpolation anchors to prevent jump-back
                     lastUpdateMs = targetMs
                     lastUpdateTime = System.currentTimeMillis()
                 }
@@ -297,7 +302,6 @@ private fun PlayerProgress(
                 )
             }
         )
-        Spacer(modifier = Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
@@ -331,109 +335,104 @@ private fun PlayerControls(
     isPlaying: Boolean,
     isReady: Boolean,
     skipDurationSeconds: Int,
-    playbackSpeed: Float,
     onPlayPause: () -> Unit,
     onSkipBack: () -> Unit,
     onSkipForward: () -> Unit,
-    onSpeedClick: () -> Unit,
-    onSkipDurationClick: () -> Unit,
+    onChapterBack: () -> Unit,
+    onChapterForward: () -> Unit
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Main controls row
         Row(
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Skip back
+            val controlHeight = 84.dp
+
             FilledTonalIconButton(
                 onClick = onSkipBack,
                 enabled = isReady,
-                modifier = Modifier.size(64.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(controlHeight),
                 shape = RoundedCornerShape(20.dp)
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Rounded.Replay,
-                        contentDescription = "Skip back",
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Text(
-                        text = "${skipDurationSeconds}s",
-                        style = MaterialTheme.typography.labelSmall
-                    )
+                    Icon(Icons.Rounded.Replay, "Skip back", Modifier.size(24.dp))
+                    Text("${skipDurationSeconds}s", style = MaterialTheme.typography.labelSmall)
                 }
             }
 
-            // Play/pause - wider rounded rectangle like reference
             FilledIconButton(
                 onClick = onPlayPause,
                 modifier = Modifier
-                    .height(64.dp)
-                    .width(120.dp),
-                shape = RoundedCornerShape(20.dp),
+                    .weight(1.8f)
+                    .height(controlHeight),
+                shape = RoundedCornerShape(20.dp)
             ) {
                 if (!isReady) {
-                    LoadingIndicator(modifier = Modifier.size(24.dp))
+                    LoadingIndicator(
+                        color = MaterialTheme.colorScheme.inversePrimary,
+                        modifier = Modifier.size(24.dp)
+                    )
                 } else {
                     Icon(
-                        imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        modifier = Modifier.size(32.dp)
+                        if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        if (isPlaying) "Pause" else "Play",
+                        Modifier.size(32.dp)
                     )
                 }
             }
 
-            // Skip forward
             FilledTonalIconButton(
                 onClick = onSkipForward,
                 enabled = isReady,
-                modifier = Modifier.size(64.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(controlHeight),
                 shape = RoundedCornerShape(20.dp)
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
-                        imageVector = Icons.Rounded.Replay,
-                        contentDescription = "Skip forward",
-                        modifier = Modifier
-                            .size(24.dp)
-                            .graphicsLayer(scaleX = -1f)
-                    )
-                    Text(
-                        text = "${skipDurationSeconds}s",
-                        style = MaterialTheme.typography.labelSmall
+                        Icons.Rounded.Replay, "Previous chapter",
+                        Modifier.size(24.dp).graphicsLayer(scaleX = -1f)
                     )
                 }
             }
         }
-
-        // Speed and skip duration pills
         Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            AssistChip(
-                onClick = onSpeedClick,
-                label = {
-                    Text(
-                        text = "${playbackSpeed}×  Speed",
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                },
-                modifier = Modifier.weight(1f)
-            )
-            AssistChip(
-                onClick = onSkipDurationClick,
-                label = {
-                    Text(
-                        text = "${skipDurationSeconds}s  Skip",
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                },
-                modifier = Modifier.weight(1f)
-            )
+            val controlHeight = 56.dp
+
+            FilledTonalIconButton(
+                onClick = onChapterBack,
+                enabled = isReady,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(controlHeight),
+                shape = RoundedCornerShape(25.dp)
+            ) {
+                Icon(Icons.Rounded.SkipPrevious, "Skip back", Modifier.size(24.dp))
+            }
+            FilledTonalIconButton(
+                onClick = onChapterForward,
+                enabled = isReady,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(controlHeight),
+                shape = RoundedCornerShape(25.dp)
+            ) {
+                Icon(
+                    Icons.Rounded.SkipNext, "Next chapter",
+                )
+            }
         }
     }
 }
@@ -445,31 +444,24 @@ private fun PlayerChapterBar(
 ) {
     Surface(
         onClick = onClick,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = MaterialTheme.shapes.large,
-        modifier = Modifier.fillMaxWidth()
+        color = MaterialTheme.colorScheme.inverseOnSurface,
+        shape = MaterialTheme.shapes.medium,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.Center
         ) {
-            Column {
-                Text(
-                    text = "Current chapter",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = currentChapter?.title ?: "No chapters",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-            Icon(
-                imageVector = Icons.Rounded.ExpandLess,
-                contentDescription = "Browse chapters",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            Text(
+                text = currentChapter?.title ?: "No chapters",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.secondary,
             )
+//            Icon(
+//                imageVector = Icons.Rounded.ExpandLess,
+//                contentDescription = "Browse chapters",
+//                tint = MaterialTheme.colorScheme.tertiary
+//            )
         }
     }
 }
@@ -484,6 +476,19 @@ private fun ChapterSheet(
 ) {
     val sheetState = rememberModalBottomSheetState()
 
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(currentChapter, chapters) {
+        val targetIndex = chapters.indexOfFirst { it.index == currentChapter?.index }
+
+        if (targetIndex != -1) {
+            listState.scrollToItem(
+                index = targetIndex,
+                scrollOffset = -300
+            )
+        }
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState
@@ -494,6 +499,7 @@ private fun ChapterSheet(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
         )
         LazyColumn(
+            state = listState,
             contentPadding = PaddingValues(bottom = 32.dp)
         ) {
             items(chapters) { chapter ->
@@ -503,7 +509,7 @@ private fun ChapterSheet(
                         Text(
                             text = chapter.title,
                             style = MaterialTheme.typography.bodyLarge,
-                            color = if (isActive) MaterialTheme.colorScheme.primary
+                            color = if (isActive) MaterialTheme.colorScheme.tertiary
                             else MaterialTheme.colorScheme.onSurface,
                         )
                     },
@@ -515,12 +521,71 @@ private fun ChapterSheet(
                         )
                     },
                     colors = ListItemDefaults.colors(
-                        containerColor = Color.Transparent
+                        containerColor = if (isActive) MaterialTheme.colorScheme.onTertiaryContainer
+                        else Color.Transparent
                     ),
-                    modifier = Modifier.clickable { onChapterClick(chapter) }
+                    modifier = Modifier
+                        .padding(horizontal = 10.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable { onChapterClick(chapter) }
                 )
-                HorizontalDivider()
             }
         }
     }
+}
+
+@Composable
+private fun SpeedAndSkipSheetButtons(
+    onSpeedClick: () -> Unit,
+    onSkipDurationClick: () -> Unit,
+    playbackSpeed: Float,
+    skipDurationSeconds: Int,
+) {
+    Row(
+        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = Modifier.fillMaxWidth(),
+        ) {
+        SpeedSheet(
+            onSpeedClick,
+            playbackSpeed,
+        )
+        SkipSheet(
+            onSkipDurationClick,
+            skipDurationSeconds,
+        )
+    }
+}
+
+@Composable
+private fun RowScope.SpeedSheet(
+    onSpeedClick: () -> Unit,
+    playbackSpeed: Float,
+) {
+    AssistChip(
+        onClick = onSpeedClick,
+        label = {
+            Text(
+                text = "${playbackSpeed}×  Speed",
+                style = MaterialTheme.typography.labelLarge
+            )
+        },
+//        modifier = Modifier.weight(1f)
+    )
+}
+
+@Composable
+private fun RowScope.SkipSheet(
+    onSkipDurationClick: () -> Unit,
+    skipDurationSeconds: Int,
+    ) {
+    AssistChip(
+        onClick = onSkipDurationClick,
+        label = {
+            Text(
+                text = "${skipDurationSeconds}s  Skip",
+                style = MaterialTheme.typography.labelLarge
+            )
+        },
+//        modifier = Modifier.weight(1f)
+    )
 }
