@@ -17,7 +17,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -41,8 +40,9 @@ fun PlayerScreen(
 
     var isChapterSheetOpen by remember { mutableStateOf(false) }
     var isSkipSheetOpen by remember { mutableStateOf(false) }
-    var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
+    var isSpeedSheetOpen by remember { mutableStateOf(false) }
     val skipDurationSeconds by playerViewModel.skipDurationSeconds.collectAsState()
+    val playbackSpeed by playerViewModel.playbackSpeed.collectAsState()
 
     val currentChapter = book.chapters.lastOrNull { it.startTimeMs <= currentPositionMs }
         ?: book.chapters.firstOrNull()
@@ -108,7 +108,7 @@ fun PlayerScreen(
             SpeedAndSkipSheetButtons(
                 skipDurationSeconds = skipDurationSeconds,
                 playbackSpeed = playbackSpeed,
-                onSpeedClick = { },
+                onSpeedClick = { isSpeedSheetOpen = true },
                 onSkipDurationClick = { isSkipSheetOpen = true }
             )
         }
@@ -131,6 +131,14 @@ fun PlayerScreen(
             currentSeconds = skipDurationSeconds,
             onSelect = { playerViewModel.setSkipDuration(it) },
             onDismiss = { isSkipSheetOpen = false }
+        )
+    }
+
+    if (isSpeedSheetOpen) {
+        SpeedSheet(
+            currentSpeed = playbackSpeed,
+            onSelect = { playerViewModel.setPlaybackSpeed(it) },
+            onDismiss = { isSpeedSheetOpen = false }
         )
     }
 }

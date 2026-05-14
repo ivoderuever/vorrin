@@ -9,6 +9,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -55,9 +56,14 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private val _skipDurationSeconds = MutableStateFlow(15)
     val skipDurationSeconds: StateFlow<Int> = _skipDurationSeconds.asStateFlow()
 
+    private val _playbackSpeed = MutableStateFlow(1.0f)
+    val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
+
     init {
         viewModelScope.launch {
             _skipDurationSeconds.value = preferencesRepository.getSkipDuration()
+            _playbackSpeed.value = preferencesRepository.getPlaybackSpeed()
+            controller?.setPlaybackParameters(PlaybackParameters(_playbackSpeed.value))
         }
     }
 
@@ -211,6 +217,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             }
         })
 
+        controller?.setPlaybackParameters(PlaybackParameters(_playbackSpeed.value))
+
         // Sync immediately if the service is already in STATE_READY.
         if (controller?.playbackState == Player.STATE_READY) {
             _isReady.value = true
@@ -280,6 +288,12 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         val args = Bundle().apply { putInt("seconds", seconds) }
         controller?.sendCustomCommand(AudiobookService.SET_SKIP_DURATION, args)
         viewModelScope.launch { preferencesRepository.saveSkipDuration(seconds) }
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        _playbackSpeed.value = speed
+        controller?.setPlaybackParameters(PlaybackParameters(speed))
+        viewModelScope.launch { preferencesRepository.savePlaybackSpeed(speed) }
     }
 
     fun resetProgress(book: Audiobook) {

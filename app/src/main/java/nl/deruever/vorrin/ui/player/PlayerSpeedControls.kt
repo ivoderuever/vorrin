@@ -35,7 +35,7 @@ private fun RowScope.SpeedSheet(
         onClick = onSpeedClick,
         label = {
             Text(
-                text = "${playbackSpeed}×  Speed",
+                text = "${if (playbackSpeed % 1f == 0f) playbackSpeed.toInt() else playbackSpeed}×  Speed",
                 style = MaterialTheme.typography.labelLarge
             )
         },

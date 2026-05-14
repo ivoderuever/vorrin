@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -19,6 +20,7 @@ class PreferencesRepository(private val context: Context) {
         val FOLDER_URI_KEY = stringPreferencesKey("folder_uri")
         val ACTIVE_BOOK_URI_KEY = stringPreferencesKey("active_book_uri")
         val SKIP_DURATION_KEY = intPreferencesKey("skip_duration_seconds")
+        val PLAYBACK_SPEED_KEY = floatPreferencesKey("playback_speed")
     }
 
     val folderUri: Flow<String?> = context.dataStore.data.map { prefs ->
@@ -59,6 +61,18 @@ class PreferencesRepository(private val context: Context) {
     suspend fun saveSkipDuration(seconds: Int) {
         context.dataStore.edit { prefs ->
             prefs[SKIP_DURATION_KEY] = seconds
+        }
+    }
+
+    suspend fun getPlaybackSpeed(): Float {
+        return context.dataStore.data.map { prefs ->
+            prefs[PLAYBACK_SPEED_KEY] ?: 1.0f
+        }.first()
+    }
+
+    suspend fun savePlaybackSpeed(speed: Float) {
+        context.dataStore.edit { prefs ->
+            prefs[PLAYBACK_SPEED_KEY] = speed
         }
     }
 
