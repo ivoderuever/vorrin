@@ -29,7 +29,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var controller: MediaController? = null
     private var currentBookUri: String? = null
     private var positionUpdateJob: Job? = null
-    private var initialSeekPerformed = false
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
@@ -46,7 +45,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     fun connect(book: Audiobook) {
         if (book.uri.isBlank() || book.uri == currentBookUri) return
         currentBookUri = book.uri
-        initialSeekPerformed = false
+        positionUpdateJob?.cancel()
 
         _isReady.value = false
         _isPlaying.value = false
@@ -101,8 +100,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         controller?.setMediaItem(mediaItem)
         controller?.prepare()
         controller?.playWhenReady = false
-
-        startPositionUpdates()
     }
 
     private fun setupListener() {
@@ -120,13 +117,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 if (state == Player.STATE_READY) {
                     _isReady.value = true
                     _duration.value = controller?.duration ?: 0L
-                    if (!initialSeekPerformed) {
-                        val saved = AudiobookService.pendingBook?.lastPosition ?: 0L
-                        if (saved > 0) {
-                            initialSeekPerformed = true
-                            controller?.seekTo(saved)
-                        }
-                    }
+                    // Reflect saved position immediately; service handles the actual seek
+                    _currentPositionMs.value = AudiobookService.pendingBook?.lastPosition ?: 0L
                 }
             }
         })

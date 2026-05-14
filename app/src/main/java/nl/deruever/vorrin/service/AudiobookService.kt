@@ -30,6 +30,7 @@ class AudiobookService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var currentChapters: List<Chapter> = emptyList()
     private var lastChapterIndex: Int = -1
+    private var lastSeekedUri: String? = null
 
     @OptIn(UnstableApi::class)
     override fun onCreate() {
@@ -62,11 +63,20 @@ class AudiobookService : MediaSessionService() {
 
         player.addListener(object : Player.Listener {
             override fun onEvents(player: Player, events: Player.Events) {
-                if (!events.contains(Player.EVENT_IS_PLAYING_CHANGED) &&
-                    !events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) &&
-                    !events.contains(Player.EVENT_POSITION_DISCONTINUITY)
-                ) return
-                updateChapterMetadata(player)
+                if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) &&
+                    player.playbackState == Player.STATE_READY) {
+                    val uri = pendingBook?.uri
+                    if (uri != null && uri != lastSeekedUri) {
+                        lastSeekedUri = uri
+                        val saved = pendingBook?.lastPosition ?: 0L
+                        if (saved > 0) player.seekTo(saved)
+                    }
+                }
+                if (events.contains(Player.EVENT_IS_PLAYING_CHANGED) ||
+                    events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) ||
+                    events.contains(Player.EVENT_POSITION_DISCONTINUITY)) {
+                    updateChapterMetadata(player)
+                }
             }
         })
 
@@ -105,6 +115,7 @@ class AudiobookService : MediaSessionService() {
         AudiobookService.pendingBook = book
         currentChapters = book.chapters
         lastChapterIndex = -1
+        lastSeekedUri = null
 
         val metadata = MediaMetadata.Builder()
             .setTitle(book.title)
