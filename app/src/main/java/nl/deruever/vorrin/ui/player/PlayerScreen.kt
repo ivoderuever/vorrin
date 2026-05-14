@@ -18,7 +18,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -41,8 +40,9 @@ fun PlayerScreen(
     val duration by playerViewModel.duration.collectAsState()
 
     var isChapterSheetOpen by remember { mutableStateOf(false) }
+    var isSkipSheetOpen by remember { mutableStateOf(false) }
     var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
-    var skipDurationSeconds by remember { mutableIntStateOf(30) }
+    val skipDurationSeconds by playerViewModel.skipDurationSeconds.collectAsState()
 
     val currentChapter = book.chapters.lastOrNull { it.startTimeMs <= currentPositionMs }
         ?: book.chapters.firstOrNull()
@@ -101,15 +101,15 @@ fun PlayerScreen(
                 onPlayPause = { playerViewModel.playPause() },
                 onSkipBack = { playerViewModel.skipBack(skipDurationSeconds) },
                 onSkipForward = { playerViewModel.skipForward(skipDurationSeconds) },
-                onChapterBack = {},
-                onChapterForward = {}
+                onChapterBack = { playerViewModel.chapterBack() },
+                onChapterForward = { playerViewModel.chapterForward() }
             )
             Spacer(modifier = Modifier.height(16.dp))
             SpeedAndSkipSheetButtons(
                 skipDurationSeconds = skipDurationSeconds,
                 playbackSpeed = playbackSpeed,
                 onSpeedClick = { },
-                onSkipDurationClick = { }
+                onSkipDurationClick = { isSkipSheetOpen = true }
             )
         }
     }
@@ -123,6 +123,14 @@ fun PlayerScreen(
                 isChapterSheetOpen = false
             },
             onDismiss = { isChapterSheetOpen = false }
+        )
+    }
+
+    if (isSkipSheetOpen) {
+        SkipDurationSheet(
+            currentSeconds = skipDurationSeconds,
+            onSelect = { playerViewModel.setSkipDuration(it) },
+            onDismiss = { isSkipSheetOpen = false }
         )
     }
 }

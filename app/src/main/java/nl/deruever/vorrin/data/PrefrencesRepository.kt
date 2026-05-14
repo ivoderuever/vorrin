@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -17,6 +18,7 @@ class PreferencesRepository(private val context: Context) {
     companion object {
         val FOLDER_URI_KEY = stringPreferencesKey("folder_uri")
         val ACTIVE_BOOK_URI_KEY = stringPreferencesKey("active_book_uri")
+        val SKIP_DURATION_KEY = intPreferencesKey("skip_duration_seconds")
     }
 
     val folderUri: Flow<String?> = context.dataStore.data.map { prefs ->
@@ -45,6 +47,18 @@ class PreferencesRepository(private val context: Context) {
     suspend fun clearFolderUri() {
         context.dataStore.edit { prefs ->
             prefs.remove(FOLDER_URI_KEY)
+        }
+    }
+
+    suspend fun getSkipDuration(): Int {
+        return context.dataStore.data.map { prefs ->
+            prefs[SKIP_DURATION_KEY] ?: 15
+        }.first()
+    }
+
+    suspend fun saveSkipDuration(seconds: Int) {
+        context.dataStore.edit { prefs ->
+            prefs[SKIP_DURATION_KEY] = seconds
         }
     }
 

@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.ComponentName
 import android.content.Intent
 import android.content.Context
+import android.os.Bundle
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
@@ -22,12 +23,14 @@ import kotlinx.coroutines.launch
 import nl.deruever.vorrin.data.Audiobook
 import nl.deruever.vorrin.data.BookStatus
 import nl.deruever.vorrin.data.Chapter
+import nl.deruever.vorrin.data.PreferencesRepository
 import nl.deruever.vorrin.data.db.VorrinDatabase
 import nl.deruever.vorrin.service.AudiobookService
 
 class PlayerViewModel(application: Application) : AndroidViewModel(application) {
 
     private val bookDao = VorrinDatabase.getInstance(application).bookDao()
+    private val preferencesRepository = PreferencesRepository(application)
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
@@ -48,6 +51,15 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     private val _duration = MutableStateFlow(0L)
     val duration: StateFlow<Long> = _duration.asStateFlow()
+
+    private val _skipDurationSeconds = MutableStateFlow(15)
+    val skipDurationSeconds: StateFlow<Int> = _skipDurationSeconds.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            _skipDurationSeconds.value = preferencesRepository.getSkipDuration()
+        }
+    }
 
     fun connect(book: Audiobook) {
         if (book.uri.isBlank() || book.uri == currentBookUri) return
@@ -248,6 +260,26 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     fun skipBack(seconds: Int) {
         val target = (absolutePosition() - seconds * 1000L).coerceAtLeast(0L)
         seekTo(target)
+    }
+
+    fun chapterBack() {
+        val currentIndex = controller?.currentMediaItemIndex ?: return
+        val targetIndex = (currentIndex - 1).coerceAtLeast(0)
+        val targetMs = chapters.getOrNull(targetIndex)?.startTimeMs ?: 0L
+        seekTo(targetMs)
+    }
+
+    fun chapterForward() {
+        val currentIndex = controller?.currentMediaItemIndex ?: return
+        val targetMs = chapters.getOrNull(currentIndex + 1)?.startTimeMs ?: return
+        seekTo(targetMs)
+    }
+
+    fun setSkipDuration(seconds: Int) {
+        _skipDurationSeconds.value = seconds
+        val args = Bundle().apply { putInt("seconds", seconds) }
+        controller?.sendCustomCommand(AudiobookService.SET_SKIP_DURATION, args)
+        viewModelScope.launch { preferencesRepository.saveSkipDuration(seconds) }
     }
 
     fun resetProgress(book: Audiobook) {
