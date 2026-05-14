@@ -179,14 +179,12 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun skipForward(seconds: Int) {
-        val current = controller?.currentPosition ?: _currentPositionMs.value
-        val target = (current + seconds * 1000L).coerceAtMost(_duration.value)
+        val target = (_currentPositionMs.value + seconds * 1000L).coerceAtMost(_duration.value)
         seekTo(target)
     }
 
     fun skipBack(seconds: Int) {
-        val current = controller?.currentPosition ?: _currentPositionMs.value
-        val target = (current - seconds * 1000L).coerceAtLeast(0L)
+        val target = (_currentPositionMs.value - seconds * 1000L).coerceAtLeast(0L)
         seekTo(target)
     }
 
