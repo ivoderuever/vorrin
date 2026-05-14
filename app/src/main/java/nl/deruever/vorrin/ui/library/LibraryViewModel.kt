@@ -4,11 +4,10 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nl.deruever.vorrin.data.Audiobook
 import nl.deruever.vorrin.data.BookRepository
@@ -43,6 +42,10 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         viewModelScope.launch {
+            bookRepository.prewarmAllBooks()
+        }
+
+        viewModelScope.launch {
             // Observe books from database
             bookRepository.getBooksFlow().collect { books ->
                 _books.value = books
@@ -56,13 +59,13 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             preferencesRepository.folderUri
                 .collect { uri ->
+                    _isInitializing.value = false
                     if (_folderUri.value != uri) {
                         _folderUri.value = uri
                         if (uri != null) {
                             syncBooks(Uri.parse(uri))
                         }
                     }
-                    _isInitializing.value = false
                 }
         }
 
@@ -82,11 +85,9 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private suspend fun syncBooks(uri: Uri) = coroutineScope {
+    private suspend fun syncBooks(uri: Uri) {
         _isLoading.value = true
-        val minLoadingTime = launch { delay(1_500) }
         bookRepository.syncFolder(uri)
-        minLoadingTime.join()
         _isLoading.value = false
     }
 
@@ -100,7 +101,11 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     fun refresh() {
         viewModelScope.launch {
             val uri = _folderUri.value ?: return@launch
-            syncBooks(Uri.parse(uri))
+            _isLoading.value = true
+            val minDelay = launch { delay(1_500) }
+            bookRepository.syncFolder(Uri.parse(uri))
+            minDelay.join()
+            _isLoading.value = false
         }
     }
 }

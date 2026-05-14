@@ -3,8 +3,21 @@ package nl.deruever.vorrin.data.db
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 
+data class BookWithChapters(
+    @Embedded val book: BookEntity,
+    @Relation(
+        parentColumn = "id",
+        entityColumn = "bookId"
+    )
+    val chapters: List<ChapterEntity>
+)
+
 @Dao
 interface BookDao {
+
+    @Transaction
+    @Query("SELECT * FROM books ORDER BY title ASC")
+    fun getAllBooksWithChapters(): Flow<List<BookWithChapters>>
 
     @Query("SELECT * FROM books ORDER BY title ASC")
     fun getAllBooks(): Flow<List<BookEntity>>

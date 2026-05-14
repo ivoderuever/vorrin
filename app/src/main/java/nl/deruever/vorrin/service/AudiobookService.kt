@@ -11,14 +11,18 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.google.common.collect.ImmutableList
 import nl.deruever.vorrin.MainActivity
 import nl.deruever.vorrin.data.Audiobook
+import nl.deruever.vorrin.data.BookCache
 import nl.deruever.vorrin.data.Chapter
 
 class AudiobookService : MediaSessionService() {
@@ -36,7 +40,13 @@ class AudiobookService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
 
+        val cacheDataSourceFactory = CacheDataSource.Factory()
+            .setCache(BookCache.get(this))
+            .setUpstreamDataSourceFactory(DefaultDataSource.Factory(this))
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
         val player = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(cacheDataSourceFactory))
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)

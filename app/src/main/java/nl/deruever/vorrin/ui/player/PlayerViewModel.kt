@@ -74,14 +74,26 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun loadBookIntoService(context: Context, book: Audiobook) {
-        // Tell the service to load the book
-        val intent = Intent(context, AudiobookService::class.java)
-        context.startService(intent)
+        val ctrl = controller ?: return
+        AudiobookService.pendingBook = book
 
-        // Use controller to trigger load via service binder
-        // Since we can't easily call service methods from ViewModel,
-        // we set the media item through the controller
-        val uri = android.net.Uri.parse(book.uri)
+        // If ExoPlayer is already loaded and buffered for this book, skip re-preparing.
+        // This is the common case when the service survived a task removal.
+        val loadedUri = ctrl.currentMediaItem?.localConfiguration?.uri?.toString()
+        val state = ctrl.playbackState
+        val alreadyLoaded = loadedUri == book.uri && state != Player.STATE_IDLE
+
+        if (alreadyLoaded) {
+            _isReady.value = state == Player.STATE_READY
+            _duration.value = ctrl.duration.takeIf { it > 0 } ?: book.duration
+            _currentPositionMs.value = ctrl.currentPosition.takeIf { it > 0 } ?: book.lastPosition
+            _isPlaying.value = ctrl.isPlaying
+            if (ctrl.isPlaying) startPositionUpdates()
+            return
+        }
+
+        context.startService(Intent(context, AudiobookService::class.java))
+
         val metadata = androidx.media3.common.MediaMetadata.Builder()
             .setTitle(book.title)
             .setArtist(book.author)
@@ -91,15 +103,14 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             )
             .build()
 
-        val mediaItem = androidx.media3.common.MediaItem.Builder()
-            .setUri(uri)
-            .setMediaMetadata(metadata)
-            .build()
-
-        AudiobookService.pendingBook = book
-        controller?.setMediaItem(mediaItem)
-        controller?.prepare()
-        controller?.playWhenReady = false
+        ctrl.setMediaItem(
+            androidx.media3.common.MediaItem.Builder()
+                .setUri(android.net.Uri.parse(book.uri))
+                .setMediaMetadata(metadata)
+                .build()
+        )
+        ctrl.prepare()
+        ctrl.playWhenReady = false
     }
 
     private fun setupListener() {
@@ -117,11 +128,19 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 if (state == Player.STATE_READY) {
                     _isReady.value = true
                     _duration.value = controller?.duration ?: 0L
-                    // Reflect saved position immediately; service handles the actual seek
                     _currentPositionMs.value = AudiobookService.pendingBook?.lastPosition ?: 0L
                 }
             }
         })
+
+        // Sync current state immediately — the service may already be in STATE_READY
+        // if it survived a task removal (no re-prepare needed).
+        if (controller?.playbackState == Player.STATE_READY) {
+            _isReady.value = true
+            _duration.value = controller?.duration ?: 0L
+        }
+        _isPlaying.value = controller?.isPlaying == true
+        if (controller?.isPlaying == true) startPositionUpdates()
     }
 
     private fun startPositionUpdates() {

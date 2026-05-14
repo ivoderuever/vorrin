@@ -35,6 +35,13 @@ fun VorrinNavigation() {
 
     val activity = LocalContext.current as MainActivity
     val openPlayer by activity.openPlayerEvent.collectAsState()
+    val activeBook by libraryViewModel.activeBook.collectAsState()
+
+    // Pre-connect as soon as the active book is known so the mini player and
+    // player screen are ready without waiting for navigation to trigger it.
+    LaunchedEffect(activeBook) {
+        activeBook?.let { playerViewModel.connect(it) }
+    }
 
     LaunchedEffect(openPlayer) {
         if (openPlayer) {

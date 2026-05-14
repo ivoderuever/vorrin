@@ -9,6 +9,11 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import java.io.ByteArrayOutputStream
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.cache.CacheDataSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -26,15 +31,15 @@ class BookRepository(
 ) {
     private val syncMutex = Mutex()
 
-    // Observe all books from database as a Flow
     fun getBooksFlow(): Flow<List<Audiobook>> {
-        return bookDao.getAllBooks().map { entities ->
-            entities.map { entity ->
-                // Note: This is still doing N+1 queries. 
-                // In a future update, consider using Room @Relation for better performance.
-                val chapters = bookDao.getChaptersForBook(entity.id)
-                entity.toAudiobook(chapters)
-            }
+        return bookDao.getAllBooksWithChapters().map { list ->
+            list.map { it.book.toAudiobook(it.chapters.sortedBy { c -> c.index }) }
+        }
+    }
+
+    suspend fun prewarmAllBooks() {
+        bookDao.getAllBookUris().forEach { uriString ->
+            prewarmCache(Uri.parse(uriString))
         }
     }
 
@@ -118,10 +123,53 @@ class BookRepository(
                 bookDao.insertChapters(chapters)
             }
 
+            // Pre-warm the ExoPlayer cache with the file's head and tail bytes so
+            // the moov atom (MP4 container index) is cached for instant future opens.
+            prewarmCache(uri)
+
         } catch (e: Exception) {
             android.util.Log.e("Vorrin", "Failed to index book: $uri", e)
         } finally {
             retriever.release()
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    private suspend fun prewarmCache(uri: Uri) = withContext(Dispatchers.IO) {
+        try {
+            val fileSize = context.contentResolver.openFileDescriptor(uri, "r")
+                ?.use { it.statSize }
+                ?.takeIf { it > 0 } ?: return@withContext
+
+            val cache = BookCache.get(context)
+            val upstreamFactory = DefaultDataSource.Factory(context)
+            val buf = ByteArray(64 * 1024)
+
+            val headSize = minOf(512 * 1024L, fileSize)
+            val tailOffset = maxOf(0L, fileSize - 4 * 1024 * 1024L)
+            val tailSize = fileSize - tailOffset
+
+            // Read head (ftyp box) and tail (where moov usually lives).
+            // CacheDataSource writes each byte it reads from upstream into the cache,
+            // so simply draining the read loop is enough to pre-populate it.
+            for (spec in listOf(
+                DataSpec(uri, 0L, headSize),
+                DataSpec(uri, tailOffset, tailSize)
+            )) {
+                val dataSource = CacheDataSource(
+                    cache,
+                    upstreamFactory.createDataSource(),
+                    CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR
+                )
+                try {
+                    dataSource.open(spec)
+                    while (dataSource.read(buf, 0, buf.size) != -1) { /* drain */ }
+                } finally {
+                    dataSource.close()
+                }
+            }
+        } catch (e: Exception) {
+            // Pre-warming is best-effort; a failure here doesn't affect playback
         }
     }
 
