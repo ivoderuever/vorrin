@@ -2,10 +2,12 @@ package nl.deruever.vorrin.ui.player
 
 import android.app.Application
 import android.content.ComponentName
-import android.content.Context
 import android.content.Intent
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -19,6 +21,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import nl.deruever.vorrin.data.Audiobook
 import nl.deruever.vorrin.data.BookStatus
+import nl.deruever.vorrin.data.Chapter
 import nl.deruever.vorrin.data.db.VorrinDatabase
 import nl.deruever.vorrin.service.AudiobookService
 
@@ -29,7 +32,10 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
     private var currentBookUri: String? = null
+    private var chapters: List<Chapter> = emptyList()
+    private var totalDuration: Long = 0L
     private var positionUpdateJob: Job? = null
+    private var startPositionOverride: Pair<String, Long>? = null
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
@@ -45,23 +51,29 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun connect(book: Audiobook) {
         if (book.uri.isBlank() || book.uri == currentBookUri) return
-        currentBookUri = book.uri
+
+        val overridePos = startPositionOverride?.takeIf { it.first == book.uri }?.second
+        startPositionOverride = null
+        val effectiveBook = if (overridePos != null) book.copy(lastPosition = overridePos) else book
+
+        currentBookUri = effectiveBook.uri
+        chapters = effectiveBook.chapters
+        totalDuration = effectiveBook.duration
         positionUpdateJob?.cancel()
+
+        _isReady.value = false
+        _isPlaying.value = false
+        _currentPositionMs.value = effectiveBook.lastPosition
+        _duration.value = effectiveBook.duration
 
         if (book.status == BookStatus.UNREAD) {
             viewModelScope.launch { bookDao.updateStatus(book.uri, BookStatus.IN_PROGRESS) }
         }
 
-        _isReady.value = false
-        _isPlaying.value = false
-        _currentPositionMs.value = book.lastPosition
-        _duration.value = book.duration
-
         val context = getApplication<Application>()
 
         if (controller != null) {
-            // Already connected — just load the new book
-            loadBookIntoService(context, book)
+            loadBookIntoService(context, effectiveBook)
             return
         }
 
@@ -74,24 +86,31 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         controllerFuture?.addListener({
             controller = controllerFuture?.get()
             setupListener()
-            loadBookIntoService(context, book)
+            loadBookIntoService(context, effectiveBook)
         }, MoreExecutors.directExecutor())
+    }
+
+    // Converts controller position (chapter-relative) to absolute book position.
+    private fun absolutePosition(): Long {
+        val chapterIndex = controller?.currentMediaItemIndex ?: 0
+        val chapterStart = chapters.getOrNull(chapterIndex)?.startTimeMs ?: 0L
+        return chapterStart + (controller?.currentPosition ?: 0L).coerceAtLeast(0L)
     }
 
     private fun loadBookIntoService(context: Context, book: Audiobook) {
         val ctrl = controller ?: return
-        AudiobookService.pendingBook = book
 
-        // If ExoPlayer is already loaded and buffered for this book, skip re-preparing.
-        // This is the common case when the service survived a task removal.
         val loadedUri = ctrl.currentMediaItem?.localConfiguration?.uri?.toString()
         val state = ctrl.playbackState
-        val alreadyLoaded = loadedUri == book.uri && state != Player.STATE_IDLE
+        val expectedItemCount = if (book.chapters.isEmpty()) 1 else book.chapters.size
+        val alreadyLoaded = loadedUri == book.uri &&
+            state != Player.STATE_IDLE &&
+            ctrl.mediaItemCount == expectedItemCount
 
         if (alreadyLoaded) {
             _isReady.value = state == Player.STATE_READY
-            _duration.value = ctrl.duration.takeIf { it > 0 } ?: book.duration
-            _currentPositionMs.value = ctrl.currentPosition.takeIf { it > 0 } ?: book.lastPosition
+            _duration.value = totalDuration
+            _currentPositionMs.value = absolutePosition().takeIf { it > 0 } ?: book.lastPosition
             _isPlaying.value = ctrl.isPlaying
             if (ctrl.isPlaying) startPositionUpdates()
             return
@@ -99,21 +118,55 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
         context.startService(Intent(context, AudiobookService::class.java))
 
-        val metadata = androidx.media3.common.MediaMetadata.Builder()
+        val bookUri = android.net.Uri.parse(book.uri)
+        val baseMetadata = MediaMetadata.Builder()
             .setTitle(book.title)
             .setArtist(book.author)
-            .setArtworkData(
-                book.coverArt,
-                androidx.media3.common.MediaMetadata.PICTURE_TYPE_FRONT_COVER
-            )
+            .setArtworkData(book.coverArt, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
             .build()
 
-        ctrl.setMediaItem(
-            androidx.media3.common.MediaItem.Builder()
-                .setUri(android.net.Uri.parse(book.uri))
-                .setMediaMetadata(metadata)
+        if (book.chapters.isEmpty()) {
+            ctrl.setMediaItem(
+                MediaItem.Builder()
+                    .setUri(bookUri)
+                    .setMediaMetadata(baseMetadata)
+                    .build(),
+                book.lastPosition
+            )
+            ctrl.prepare()
+            ctrl.playWhenReady = false
+            return
+        }
+
+        // One playlist item per chapter, each clipped to its exact time range.
+        // ExoPlayer reports position within the current item, so the notification
+        // and Bluetooth car display show chapter progress (0–100%) automatically.
+        val mediaItems = book.chapters.map { chapter ->
+            MediaItem.Builder()
+                .setUri(bookUri)
+                .setClippingConfiguration(
+                    MediaItem.ClippingConfiguration.Builder()
+                        .setStartPositionMs(chapter.startTimeMs)
+                        .setEndPositionMs(chapter.endTimeMs)
+                        .build()
+                )
+                .setMediaMetadata(
+                    baseMetadata.buildUpon()
+                        .setSubtitle(chapter.title)
+                        .setTrackNumber(chapter.index + 1)
+                        .setTotalTrackCount(book.chapters.size)
+                        .build()
+                )
                 .build()
-        )
+        }
+
+        val startIndex = book.chapters
+            .indexOfLast { it.startTimeMs <= book.lastPosition }
+            .coerceAtLeast(0)
+        val startOffset = (book.lastPosition - book.chapters[startIndex].startTimeMs)
+            .coerceAtLeast(0L)
+
+        ctrl.setMediaItems(mediaItems, startIndex, startOffset)
         ctrl.prepare()
         ctrl.playWhenReady = false
     }
@@ -124,7 +177,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 _isPlaying.value = isPlaying
                 if (isPlaying) startPositionUpdates()
                 else {
-                    _currentPositionMs.value = controller?.currentPosition ?: 0L
+                    _currentPositionMs.value = absolutePosition()
                     savePosition()
                 }
             }
@@ -132,21 +185,24 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     _isReady.value = true
-                    _duration.value = controller?.duration ?: 0L
-                    _currentPositionMs.value = AudiobookService.pendingBook?.lastPosition ?: 0L
+                    _duration.value = totalDuration
+                    _currentPositionMs.value = absolutePosition()
                 }
                 if (state == Player.STATE_ENDED) {
                     val uri = currentBookUri ?: return
                     viewModelScope.launch { bookDao.updateStatus(uri, BookStatus.FINISHED) }
                 }
             }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                _currentPositionMs.value = absolutePosition()
+            }
         })
 
-        // Sync current state immediately — the service may already be in STATE_READY
-        // if it survived a task removal (no re-prepare needed).
+        // Sync immediately if the service is already in STATE_READY.
         if (controller?.playbackState == Player.STATE_READY) {
             _isReady.value = true
-            _duration.value = controller?.duration ?: 0L
+            _duration.value = totalDuration
         }
         _isPlaying.value = controller?.isPlaying == true
         if (controller?.isPlaying == true) startPositionUpdates()
@@ -157,7 +213,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         positionUpdateJob = viewModelScope.launch {
             var ticks = 0
             while (true) {
-                _currentPositionMs.value = controller?.currentPosition ?: 0L
+                _currentPositionMs.value = absolutePosition()
                 delay(500)
                 if (++ticks >= 60) {
                     savePosition()
@@ -172,19 +228,25 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         else controller?.play()
     }
 
-    fun seekTo(positionMs: Long) {
-        controller?.seekTo(positionMs)
-        _currentPositionMs.value = positionMs
-        savePosition(positionMs)
+    fun seekTo(absoluteMs: Long) {
+        if (chapters.isEmpty()) {
+            controller?.seekTo(absoluteMs)
+        } else {
+            val idx = chapters.indexOfLast { it.startTimeMs <= absoluteMs }.coerceAtLeast(0)
+            val offset = (absoluteMs - chapters[idx].startTimeMs).coerceAtLeast(0L)
+            controller?.seekTo(idx, offset)
+        }
+        _currentPositionMs.value = absoluteMs
+        savePosition(absoluteMs)
     }
 
     fun skipForward(seconds: Int) {
-        val target = (_currentPositionMs.value + seconds * 1000L).coerceAtMost(_duration.value)
+        val target = (absolutePosition() + seconds * 1000L).coerceAtMost(totalDuration)
         seekTo(target)
     }
 
     fun skipBack(seconds: Int) {
-        val target = (_currentPositionMs.value - seconds * 1000L).coerceAtLeast(0L)
+        val target = (absolutePosition() - seconds * 1000L).coerceAtLeast(0L)
         seekTo(target)
     }
 
@@ -194,16 +256,16 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             bookDao.updateStatus(book.uri, BookStatus.IN_PROGRESS)
         }
         if (book.uri == currentBookUri) {
-            controller?.seekTo(0L)
-            _currentPositionMs.value = 0L
+            seekTo(0L)
         } else {
+            startPositionOverride = book.uri to 0L
             currentBookUri = null
         }
     }
 
     fun savePosition(position: Long? = null) {
         val uri = currentBookUri ?: return
-        val pos = position ?: controller?.currentPosition ?: return
+        val pos = position ?: absolutePosition()
         viewModelScope.launch {
             bookDao.updatePosition(uri, pos)
         }

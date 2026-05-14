@@ -2,13 +2,10 @@ package nl.deruever.vorrin.service
 
 import android.app.PendingIntent
 import android.content.Intent
-import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
@@ -21,20 +18,11 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.google.common.collect.ImmutableList
 import nl.deruever.vorrin.MainActivity
-import nl.deruever.vorrin.data.Audiobook
 import nl.deruever.vorrin.data.BookCache
-import nl.deruever.vorrin.data.Chapter
 
 class AudiobookService : MediaSessionService() {
 
-    companion object {
-        var pendingBook: nl.deruever.vorrin.data.Audiobook? = null
-    }
-
     private var mediaSession: MediaSession? = null
-    private var currentChapters: List<Chapter> = emptyList()
-    private var lastChapterIndex: Int = -1
-    private var lastSeekedUri: String? = null
 
     @OptIn(UnstableApi::class)
     override fun onCreate() {
@@ -64,31 +52,12 @@ class AudiobookService : MediaSessionService() {
             )
             .build()
 
-        // Redirect seekToNext/seekToPrevious (sent by Bluetooth earbuds) to seekForward/seekBack
-        // so they advance 30 s instead of jumping to the next embedded chapter marker.
+        // Redirect seekToNext/seekToPrevious (Bluetooth earbuds) to 30 s skips
+        // instead of jumping to the next chapter item in the playlist.
         val wrappedPlayer = object : ForwardingPlayer(player) {
             override fun seekToNext() = seekForward()
             override fun seekToPrevious() = seekBack()
         }
-
-        player.addListener(object : Player.Listener {
-            override fun onEvents(player: Player, events: Player.Events) {
-                if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) &&
-                    player.playbackState == Player.STATE_READY) {
-                    val uri = pendingBook?.uri
-                    if (uri != null && uri != lastSeekedUri) {
-                        lastSeekedUri = uri
-                        val saved = pendingBook?.lastPosition ?: 0L
-                        if (saved > 0) player.seekTo(saved)
-                    }
-                }
-                if (events.contains(Player.EVENT_IS_PLAYING_CHANGED) ||
-                    events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) ||
-                    events.contains(Player.EVENT_POSITION_DISCONTINUITY)) {
-                    updateChapterMetadata(player)
-                }
-            }
-        })
 
         val sessionIntent = Intent(this, MainActivity::class.java).apply {
             putExtra("open_player", true)
@@ -120,67 +89,14 @@ class AudiobookService : MediaSessionService() {
             .build()
     }
 
-    fun loadBook(book: Audiobook) {
-        val player = mediaSession?.player ?: return
-        AudiobookService.pendingBook = book
-        currentChapters = book.chapters
-        lastChapterIndex = -1
-        lastSeekedUri = null
-
-        val metadata = MediaMetadata.Builder()
-            .setTitle(book.title)
-            .setArtist(book.author)
-            .setArtworkData(
-                book.coverArt,
-                MediaMetadata.PICTURE_TYPE_FRONT_COVER
-            )
-            .build()
-
-        val mediaItem = MediaItem.Builder()
-            .setUri(Uri.parse(book.uri))
-            .setMediaMetadata(metadata)
-            .build()
-
-        player.playWhenReady = false
-        player.setMediaItem(mediaItem)
-        player.prepare()
-    }
-
-    fun seekTo(positionMs: Long) {
-        mediaSession?.player?.seekTo(positionMs)
-    }
-
-    private fun updateChapterMetadata(player: Player) {
-        if (currentChapters.isEmpty()) {
-            currentChapters = pendingBook?.chapters ?: emptyList()
-        }
-        if (currentChapters.isEmpty()) return
-        val position = player.currentPosition
-        val chapter = currentChapters.lastOrNull { it.startTimeMs <= position }
-            ?: currentChapters.firstOrNull()
-            ?: return
-        if (chapter.index == lastChapterIndex) return
-        lastChapterIndex = chapter.index
-        val current = player.currentMediaItem ?: return
-        val updated = current.buildUpon()
-            .setMediaMetadata(
-                current.mediaMetadata.buildUpon()
-                    .setSubtitle(chapter.title)
-                    .build()
-            )
-            .build()
-        player.replaceMediaItem(0, updated)
-    }
-
     override fun onTaskRemoved(rootIntent: Intent?) {
         mediaSession?.player?.pause()
         stopSelf()
         super.onTaskRemoved(rootIntent)
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
-        return mediaSession
-    }
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
+        mediaSession
 
     override fun onDestroy() {
         mediaSession?.run {
