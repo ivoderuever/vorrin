@@ -10,8 +10,9 @@ data class Audiobook(
     val chapters: List<Chapter> = emptyList(),
     val lastPosition: Long = 0L,
     val totalListened: Long = 0L,
+    val status: BookStatus = BookStatus.UNREAD,
 ) {
-    val isFinished: Boolean get() = duration > 0 && lastPosition >= duration
+    val isFinished: Boolean get() = status == BookStatus.FINISHED
     val progressPercent: Int get() = if (duration > 0) ((lastPosition.toFloat() / duration) * 100).toInt() else 0
     val timeLeft: Long get() = duration - lastPosition
     val timeListened: Long get() = lastPosition

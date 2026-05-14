@@ -68,6 +68,7 @@ fun VorrinNavigation() {
                 viewModel = libraryViewModel,
                 playerViewModel = playerViewModel,
                 onBookClick = { book ->
+                    if (book.isFinished) playerViewModel.resetProgress(book)
                     libraryViewModel.setActiveBook(book)
                     navController.navigate(PlayerRoute(bookId = book.id))
                 }

@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import nl.deruever.vorrin.data.Audiobook
+import nl.deruever.vorrin.data.BookStatus
 import nl.deruever.vorrin.data.db.VorrinDatabase
 import nl.deruever.vorrin.service.AudiobookService
 
@@ -46,6 +47,10 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         if (book.uri.isBlank() || book.uri == currentBookUri) return
         currentBookUri = book.uri
         positionUpdateJob?.cancel()
+
+        if (book.status == BookStatus.UNREAD) {
+            viewModelScope.launch { bookDao.updateStatus(book.uri, BookStatus.IN_PROGRESS) }
+        }
 
         _isReady.value = false
         _isPlaying.value = false
@@ -130,6 +135,10 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     _duration.value = controller?.duration ?: 0L
                     _currentPositionMs.value = AudiobookService.pendingBook?.lastPosition ?: 0L
                 }
+                if (state == Player.STATE_ENDED) {
+                    val uri = currentBookUri ?: return
+                    viewModelScope.launch { bookDao.updateStatus(uri, BookStatus.FINISHED) }
+                }
             }
         })
 
@@ -179,6 +188,19 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         val current = controller?.currentPosition ?: _currentPositionMs.value
         val target = (current - seconds * 1000L).coerceAtLeast(0L)
         seekTo(target)
+    }
+
+    fun resetProgress(book: Audiobook) {
+        viewModelScope.launch {
+            bookDao.updatePosition(book.uri, 0L)
+            bookDao.updateStatus(book.uri, BookStatus.IN_PROGRESS)
+        }
+        if (book.uri == currentBookUri) {
+            controller?.seekTo(0L)
+            _currentPositionMs.value = 0L
+        } else {
+            currentBookUri = null
+        }
     }
 
     fun savePosition(position: Long? = null) {

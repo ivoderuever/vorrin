@@ -247,6 +247,7 @@ fun BookEntity.toAudiobook(chapters: List<ChapterEntity>): Audiobook {
         coverArt = coverArt,
         lastPosition = lastPosition,
         totalListened = totalListened,
+        status = status,
         chapters = chapters.map { it.toChapter() }
     )
 }

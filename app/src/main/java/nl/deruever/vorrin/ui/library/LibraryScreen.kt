@@ -27,6 +27,7 @@ import androidx.compose.material.icons.sharp.PlayArrow
 import androidx.compose.runtime.*
 import androidx.compose.ui.text.style.TextOverflow
 import nl.deruever.vorrin.data.Audiobook
+import nl.deruever.vorrin.data.BookStatus
 import android.net.Uri
 import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material3.LoadingIndicator
@@ -149,7 +150,7 @@ fun BookItem(book: Audiobook, onClick: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                if (book.progressPercent in 1..99) {
+                if (book.status == BookStatus.IN_PROGRESS) {
                     Spacer(modifier = Modifier.height(8.dp))
                     LinearProgressIndicator(
                         progress = { book.progressPercent / 100f },
@@ -175,7 +176,7 @@ fun BookItem(book: Audiobook, onClick: () -> Unit) {
                         modifier = Modifier.size(20.dp)
                     )
                 }
-            } else if (book.progressPercent != 0) {
+            } else if (book.status == BookStatus.IN_PROGRESS) {
                 Box(
                     modifier = Modifier
                         .size(36.dp)

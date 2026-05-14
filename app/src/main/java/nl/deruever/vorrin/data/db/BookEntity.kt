@@ -3,6 +3,7 @@ package nl.deruever.vorrin.data.db
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import nl.deruever.vorrin.data.BookStatus
 
 @Entity(
     tableName = "books",
@@ -18,6 +19,7 @@ data class BookEntity(
     val coverArt: ByteArray?,
     val lastPosition: Long = 0L,
     val totalListened: Long = 0L,
+    val status: BookStatus = BookStatus.UNREAD,
 )
 
 @Entity(tableName = "chapters")

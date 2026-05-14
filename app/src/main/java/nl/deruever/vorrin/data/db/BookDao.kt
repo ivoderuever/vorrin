@@ -2,6 +2,7 @@ package nl.deruever.vorrin.data.db
 
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
+import nl.deruever.vorrin.data.BookStatus
 
 data class BookWithChapters(
     @Embedded val book: BookEntity,
@@ -51,4 +52,7 @@ interface BookDao {
 
     @Query("UPDATE books SET lastPosition = :position WHERE uri = :uri")
     suspend fun updatePosition(uri: String, position: Long)
+
+    @Query("UPDATE books SET status = :status WHERE uri = :uri")
+    suspend fun updateStatus(uri: String, status: BookStatus)
 }
