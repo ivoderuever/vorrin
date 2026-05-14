@@ -2,8 +2,8 @@ package nl.deruever.vorrin.ui.player
 
 import android.app.Application
 import android.content.ComponentName
-import android.content.Intent
 import android.content.Context
+import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player

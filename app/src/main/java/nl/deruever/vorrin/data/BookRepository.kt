@@ -7,9 +7,8 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.net.Uri
-import androidx.documentfile.provider.DocumentFile
-import java.io.ByteArrayOutputStream
 import androidx.annotation.OptIn
+import androidx.documentfile.provider.DocumentFile
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
@@ -23,6 +22,7 @@ import kotlinx.coroutines.withContext
 import nl.deruever.vorrin.data.db.BookDao
 import nl.deruever.vorrin.data.db.BookEntity
 import nl.deruever.vorrin.data.db.ChapterEntity
+import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 
 class BookRepository(
