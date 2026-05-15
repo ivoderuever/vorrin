@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBackIosNew
@@ -39,12 +38,11 @@ internal fun PlayerTopBar(onBackClick: () -> Unit) {
 }
 
 @Composable
-internal fun PlayerCover(title: String, coverArt: ByteArray? = null) {
+internal fun PlayerCover(title: String, coverArt: ByteArray? = null, modifier: Modifier = Modifier) {
     AsyncImage(
         model = coverArt,
         contentDescription = "Cover art for $title",
-        modifier = Modifier
-            .size(280.dp)
+        modifier = modifier
             .clip(RoundedCornerShape(24.dp)),
         contentScale = ContentScale.Crop,
         fallback = painterResource(android.R.drawable.ic_menu_gallery),

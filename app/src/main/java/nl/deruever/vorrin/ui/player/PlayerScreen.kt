@@ -5,12 +5,14 @@ import android.content.pm.ActivityInfo
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -78,22 +80,40 @@ fun PlayerScreen(
                 playerViewModel.savePosition()
                 onBackClick()
             })
-            PlayerCover(book.title, book.coverArt)
-            Spacer(modifier = Modifier.height(24.dp))
+
+            Spacer(modifier = Modifier.weight(0.5f))
+
+            PlayerCover(
+                title = book.title,
+                coverArt = book.coverArt,
+                modifier = Modifier
+                    .weight(10f, fill = false)
+                    .size(280.dp)
+                    .aspectRatio(1f)
+            )
+
+            Spacer(modifier = Modifier.weight(1f))
+
             PlayerBookInfo(book = book, currentPositionMs = currentPositionMs, duration = duration)
-            Spacer(modifier = Modifier.height(36.dp))
+
+            Spacer(modifier = Modifier.weight(1.5f))
+
             PlayerChapterBar(
                 currentChapter = currentChapter,
                 onClick = { isChapterSheetOpen = true }
             )
+
             Spacer(modifier = Modifier.height(4.dp))
+
             PlayerProgress(
                 currentChapter = currentChapter,
                 currentPositionMs = currentPositionMs,
                 isPlaying = isPlaying,
                 onSeek = { playerViewModel.seekTo(it) }
             )
-            Spacer(modifier = Modifier.height(42.dp))
+
+            Spacer(modifier = Modifier.weight(1.5f))
+
             PlayerControls(
                 isPlaying = isPlaying,
                 isReady = isReady,
@@ -104,7 +124,9 @@ fun PlayerScreen(
                 onChapterBack = { playerViewModel.chapterBack() },
                 onChapterForward = { playerViewModel.chapterForward() }
             )
-            Spacer(modifier = Modifier.height(16.dp))
+
+            Spacer(modifier = Modifier.weight(1f))
+
             SpeedAndSkipSheetButtons(
                 skipDurationSeconds = skipDurationSeconds,
                 playbackSpeed = playbackSpeed,
