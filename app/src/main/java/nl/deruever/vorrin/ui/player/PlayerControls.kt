@@ -18,6 +18,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults // Make sure to add this import
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -57,7 +58,13 @@ internal fun PlayerControls(
                 modifier = Modifier
                     .weight(1f)
                     .height(controlHeight),
-                shape = RoundedCornerShape(20.dp)
+                shape = RoundedCornerShape(20.dp),
+                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Rounded.Replay, "Skip back", Modifier.size(24.dp))
@@ -70,11 +77,15 @@ internal fun PlayerControls(
                 modifier = Modifier
                     .weight(1.8f)
                     .height(controlHeight),
-                shape = RoundedCornerShape(20.dp)
+                shape = RoundedCornerShape(20.dp),
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.tertiary,
+                    contentColor = MaterialTheme.colorScheme.onTertiary
+                )
             ) {
                 if (!isReady) {
                     LoadingIndicator(
-                        color = MaterialTheme.colorScheme.inversePrimary,
+                        color = MaterialTheme.colorScheme.onTertiary,
                         modifier = Modifier.size(24.dp)
                     )
                 } else {
@@ -92,11 +103,17 @@ internal fun PlayerControls(
                 modifier = Modifier
                     .weight(1f)
                     .height(controlHeight),
-                shape = RoundedCornerShape(20.dp)
+                shape = RoundedCornerShape(20.dp),
+                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
-                        Icons.Rounded.Replay, "Previous chapter",
+                        Icons.Rounded.Replay, "Next chapter",
                         Modifier
                             .size(24.dp)
                             .graphicsLayer(scaleX = -1f)
@@ -105,6 +122,7 @@ internal fun PlayerControls(
                 }
             }
         }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -120,17 +138,25 @@ internal fun PlayerControls(
                 modifier = Modifier
                     .weight(1f)
                     .height(controlHeight),
-                shape = RoundedCornerShape(25.dp)
+                shape = RoundedCornerShape(25.dp),
+                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             ) {
                 Icon(Icons.Rounded.SkipPrevious, "Skip back", Modifier.size(24.dp))
             }
+
             FilledTonalIconButton(
                 onClick = onChapterForward,
                 enabled = isReady,
                 modifier = Modifier
                     .weight(1f)
                     .height(controlHeight),
-                shape = RoundedCornerShape(25.dp)
+                shape = RoundedCornerShape(25.dp),
+                colors = IconButtonDefaults.filledTonalIconButtonColors()
             ) {
                 Icon(Icons.Rounded.SkipNext, "Next chapter")
             }
