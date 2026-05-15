@@ -35,7 +35,7 @@ internal fun PlayerChapterBar(
 ) {
     Surface(
         onClick = onClick,
-        color = MaterialTheme.colorScheme.inverseOnSurface,
+        color = MaterialTheme.colorScheme.secondaryContainer,
         shape = MaterialTheme.shapes.medium,
     ) {
         Row(

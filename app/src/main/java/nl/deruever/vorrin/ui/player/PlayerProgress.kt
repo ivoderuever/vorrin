@@ -47,6 +47,16 @@ internal fun PlayerProgress(
 
     var smoothProgress by remember { mutableFloatStateOf(0f) }
 
+    var isWavy by remember { mutableStateOf(isPlaying) }
+    LaunchedEffect(isPlaying) {
+        if (isPlaying) {
+            isWavy = true
+        } else {
+            kotlinx.coroutines.delay(300)
+            isWavy = false
+        }
+    }
+
     LaunchedEffect(isPlaying, lastUpdateMs, draggingProgress, chapterStart, chapterDuration) {
         if (draggingProgress != null) {
             smoothProgress = draggingProgress!!
@@ -90,7 +100,7 @@ internal fun PlayerProgress(
                     progress = { sliderState.value },
                     modifier = Modifier.fillMaxWidth(),
                     amplitude = { progress ->
-                        if (isPlaying) WavyProgressIndicatorDefaults.indicatorAmplitude(progress) else 0f
+                        if (isWavy) WavyProgressIndicatorDefaults.indicatorAmplitude(progress) else 0f
                     }
                 )
             }

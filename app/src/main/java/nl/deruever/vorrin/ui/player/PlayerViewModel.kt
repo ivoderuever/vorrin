@@ -41,6 +41,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var positionUpdateJob: Job? = null
     private var startPositionOverride: Pair<String, Long>? = null
 
+    private var userWantsToPlay = false
+
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
@@ -130,6 +132,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             _duration.value = totalDuration
             _currentPositionMs.value = absolutePosition().takeIf { it > 0 } ?: book.lastPosition
             _isPlaying.value = ctrl.isPlaying
+            userWantsToPlay = ctrl.isPlaying
             if (ctrl.isPlaying) startPositionUpdates()
             return
         }
@@ -214,6 +217,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 _currentPositionMs.value = absolutePosition()
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && userWantsToPlay) {
+                    controller?.play()
+                }
             }
         })
 
@@ -225,6 +231,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             _duration.value = totalDuration
         }
         _isPlaying.value = controller?.isPlaying == true
+        userWantsToPlay = controller?.isPlaying == true
         if (controller?.isPlaying == true) startPositionUpdates()
     }
 
@@ -244,8 +251,13 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun playPause() {
-        if (controller?.isPlaying == true) controller?.pause()
-        else controller?.play()
+        if (controller?.isPlaying == true) {
+            userWantsToPlay = false
+            controller?.pause()
+        } else {
+            userWantsToPlay = true
+            controller?.play()
+        }
     }
 
     fun seekTo(absoluteMs: Long) {

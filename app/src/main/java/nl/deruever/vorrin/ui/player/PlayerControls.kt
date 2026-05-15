@@ -101,6 +101,7 @@ internal fun PlayerControls(
                             .size(24.dp)
                             .graphicsLayer(scaleX = -1f)
                     )
+                    Text("${skipDurationSeconds}s", style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
