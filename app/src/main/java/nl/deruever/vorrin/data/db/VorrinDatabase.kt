@@ -10,7 +10,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [BookEntity::class, ChapterEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -30,6 +30,12 @@ abstract class VorrinDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE books ADD COLUMN dateAdded INTEGER NOT NULL DEFAULT ${System.currentTimeMillis()}")
+            }
+        }
+
         fun getInstance(context: Context): VorrinDatabase {
             return INSTANCE ?: synchronized(this) {
                 Room.databaseBuilder(
@@ -37,7 +43,7 @@ abstract class VorrinDatabase : RoomDatabase() {
                     VorrinDatabase::class.java,
                     "vorrin_database"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build().also { INSTANCE = it }
             }
         }

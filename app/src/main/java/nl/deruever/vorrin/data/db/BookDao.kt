@@ -24,10 +24,10 @@ data class BookWithChapters(
 interface BookDao {
 
     @Transaction
-    @Query("SELECT * FROM books ORDER BY title ASC")
+    @Query("SELECT * FROM books ORDER BY dateAdded DESC")
     fun getAllBooksWithChapters(): Flow<List<BookWithChapters>>
 
-    @Query("SELECT * FROM books ORDER BY title ASC")
+    @Query("SELECT * FROM books ORDER BY dateAdded DESC")
     fun getAllBooks(): Flow<List<BookEntity>>
 
     @Query("SELECT * FROM chapters WHERE bookId = :bookId ORDER BY `index` ASC")

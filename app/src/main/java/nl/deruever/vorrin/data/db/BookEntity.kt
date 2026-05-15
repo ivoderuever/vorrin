@@ -20,6 +20,7 @@ data class BookEntity(
     val lastPosition: Long = 0L,
     val totalListened: Long = 0L,
     val status: BookStatus = BookStatus.UNREAD,
+    val dateAdded: Long = System.currentTimeMillis(),
 )
 
 @Entity(tableName = "chapters")
