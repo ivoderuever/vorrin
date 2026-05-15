@@ -40,8 +40,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var totalDuration: Long = 0L
     private var positionUpdateJob: Job? = null
     private var startPositionOverride: Pair<String, Long>? = null
-
-    private var userWantsToPlay = false
+    private var isPlaybackActive = false
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
@@ -83,6 +82,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
         _isReady.value = false
         _isPlaying.value = false
+        isPlaybackActive = false
         _currentPositionMs.value = effectiveBook.lastPosition
         _duration.value = effectiveBook.duration
 
@@ -132,7 +132,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             _duration.value = totalDuration
             _currentPositionMs.value = absolutePosition().takeIf { it > 0 } ?: book.lastPosition
             _isPlaying.value = ctrl.isPlaying
-            userWantsToPlay = ctrl.isPlaying
+            isPlaybackActive = ctrl.isPlaying
             if (ctrl.isPlaying) startPositionUpdates()
             return
         }
@@ -196,7 +196,10 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         controller?.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _isPlaying.value = isPlaying
-                if (isPlaying) startPositionUpdates()
+                if (isPlaying) {
+                    isPlaybackActive = true
+                    startPositionUpdates()
+                }
                 else {
                     _currentPositionMs.value = absolutePosition()
                     savePosition()
@@ -217,7 +220,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 _currentPositionMs.value = absolutePosition()
-                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && userWantsToPlay) {
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && isPlaybackActive) {
                     controller?.play()
                 }
             }
@@ -231,7 +234,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             _duration.value = totalDuration
         }
         _isPlaying.value = controller?.isPlaying == true
-        userWantsToPlay = controller?.isPlaying == true
+        isPlaybackActive = controller?.isPlaying == true
         if (controller?.isPlaying == true) startPositionUpdates()
     }
 
@@ -251,13 +254,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun playPause() {
-        if (controller?.isPlaying == true) {
-            userWantsToPlay = false
-            controller?.pause()
-        } else {
-            userWantsToPlay = true
-            controller?.play()
-        }
+        if (controller?.isPlaying == true) controller?.pause()
+        else controller?.play()
     }
 
     fun seekTo(absoluteMs: Long) {
