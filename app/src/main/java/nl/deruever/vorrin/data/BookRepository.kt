@@ -37,10 +37,14 @@ class BookRepository(
         }
     }
 
-    suspend fun prewarmAllBooks() {
-        bookDao.getAllBookUris().forEach { uriString ->
-            prewarmCache(Uri.parse(uriString))
+    suspend fun prewarmAllBooks(priorityUri: String? = null) {
+        val uris = bookDao.getAllBookUris()
+        val ordered = if (priorityUri != null && uris.contains(priorityUri)) {
+            listOf(priorityUri) + uris.filter { it != priorityUri }
+        } else {
+            uris
         }
+        ordered.forEach { prewarmCache(Uri.parse(it)) }
     }
 
     // Scan folder, index new books, remove deleted ones

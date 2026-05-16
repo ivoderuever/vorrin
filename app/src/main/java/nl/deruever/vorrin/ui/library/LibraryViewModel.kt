@@ -8,6 +8,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import nl.deruever.vorrin.data.Audiobook
 import nl.deruever.vorrin.data.BookRepository
@@ -42,7 +43,8 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         viewModelScope.launch {
-            bookRepository.prewarmAllBooks()
+            val activeUri = preferencesRepository.activeBookUri.first()
+            bookRepository.prewarmAllBooks(priorityUri = activeUri)
         }
 
         viewModelScope.launch {
