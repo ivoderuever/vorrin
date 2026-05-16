@@ -26,7 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.DoneAll
-import androidx.compose.material.icons.rounded.Headphones
+import nl.deruever.vorrin.R
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.sharp.Pause
@@ -392,21 +392,12 @@ private fun IntroApp(onFolderPicked: (Uri) -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(96.dp)
-                    .clip(MaterialShapes.Cookie12Sided.toShape())
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Headphones,
-                    contentDescription = null,
-                    modifier = Modifier.size(48.dp),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-
+            Icon(
+                painter = painterResource(R.drawable.ic_vorrin),
+                contentDescription = null,
+                modifier = Modifier.size(96.dp),
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
+            )
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = "Welcome to Vorrin",
@@ -414,7 +405,7 @@ private fun IntroApp(onFolderPicked: (Uri) -> Unit) {
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Your minimal audiobook player.",
+                    text = "A minimal audiobook player.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.secondary
                 )
