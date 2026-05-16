@@ -195,12 +195,17 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private fun setupListener() {
         controller?.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                _isPlaying.value = isPlaying
                 if (isPlaying) {
+                    _isPlaying.value = true
                     isPlaybackActive = true
                     startPositionUpdates()
-                }
-                else {
+                } else {
+                    // During chapter transitions, playWhenReady stays true — ExoPlayer just
+                    // pauses briefly between items. Only show the "paused" icon when the
+                    // user actually paused (playWhenReady = false).
+                    if (controller?.playWhenReady != true) {
+                        _isPlaying.value = false
+                    }
                     _currentPositionMs.value = absolutePosition()
                     savePosition()
                 }
@@ -213,6 +218,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     _currentPositionMs.value = absolutePosition()
                 }
                 if (state == Player.STATE_ENDED) {
+                    _isPlaying.value = false
                     val uri = currentBookUri ?: return
                     viewModelScope.launch { bookDao.updateStatus(uri, BookStatus.FINISHED) }
                 }
@@ -244,8 +250,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             var ticks = 0
             while (true) {
                 _currentPositionMs.value = absolutePosition()
-                delay(500)
-                if (++ticks >= 60) {
+                delay(1000)
+                if (++ticks >= 30) {
                     savePosition()
                     ticks = 0
                 }

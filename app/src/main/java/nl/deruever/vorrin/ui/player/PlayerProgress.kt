@@ -62,13 +62,15 @@ internal fun PlayerProgress(
             smoothProgress = draggingProgress!!
         } else {
             if (isPlaying) {
+                // Reset the time anchor so accumulated pause duration isn't added to the position.
+                lastUpdateTime = System.currentTimeMillis()
                 while (true) {
                     val timeSinceUpdate = System.currentTimeMillis() - lastUpdateTime
                     val estimatedPosition = lastUpdateMs + timeSinceUpdate
                     smoothProgress = if (chapterDuration > 0) {
                         ((estimatedPosition - chapterStart).toFloat() / chapterDuration).coerceIn(0f, 1f)
                     } else 0f
-                    kotlinx.coroutines.delay(16)
+                    kotlinx.coroutines.delay(50)
                 }
             } else {
                 smoothProgress = if (chapterDuration > 0) {
