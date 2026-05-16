@@ -86,7 +86,7 @@ internal fun PlayerControls(
                 if (!isReady) {
                     LoadingIndicator(
                         color = MaterialTheme.colorScheme.onTertiary,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(32.dp)
                     )
                 } else {
                     Icon(
