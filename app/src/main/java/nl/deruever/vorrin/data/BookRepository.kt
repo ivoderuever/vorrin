@@ -31,6 +31,17 @@ class BookRepository(
 ) {
     private val syncMutex = Mutex()
 
+    suspend fun markBooksAsFinished(uris: List<String>) {
+        uris.forEach { bookDao.updateStatus(it, BookStatus.FINISHED) }
+    }
+
+    suspend fun markBooksAsUnread(uris: List<String>) {
+        uris.forEach { uri ->
+            bookDao.updateStatus(uri, BookStatus.UNREAD)
+            bookDao.updatePosition(uri, 0L)
+        }
+    }
+
     fun getBooksFlow(): Flow<List<Audiobook>> {
         return bookDao.getAllBooksWithChapters().map { list ->
             list.map { it.book.toAudiobook(it.chapters.sortedBy { c -> c.index }) }

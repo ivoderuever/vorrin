@@ -39,6 +39,9 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val _books = MutableStateFlow<List<Audiobook>>(emptyList())
     val books: StateFlow<List<Audiobook>> = _books.asStateFlow()
 
+    private val _selectedBookUris = MutableStateFlow<Set<String>>(emptySet())
+    val selectedBookUris: StateFlow<Set<String>> = _selectedBookUris.asStateFlow()
+
     private var currentActiveUri: String? = null
 
     init {
@@ -97,6 +100,30 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         _activeBook.value = book
         viewModelScope.launch {
             preferencesRepository.saveActiveBookUri(book.uri)
+        }
+    }
+
+    fun toggleBookSelection(book: Audiobook) {
+        _selectedBookUris.value = _selectedBookUris.value.toMutableSet().apply {
+            if (!add(book.uri)) remove(book.uri)
+        }
+    }
+
+    fun clearSelection() {
+        _selectedBookUris.value = emptySet()
+    }
+
+    fun markSelectedAsFinished() {
+        viewModelScope.launch {
+            bookRepository.markBooksAsFinished(_selectedBookUris.value.toList())
+            clearSelection()
+        }
+    }
+
+    fun markSelectedAsUnread() {
+        viewModelScope.launch {
+            bookRepository.markBooksAsUnread(_selectedBookUris.value.toList())
+            clearSelection()
         }
     }
 

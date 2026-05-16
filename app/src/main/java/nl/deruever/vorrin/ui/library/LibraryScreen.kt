@@ -1,8 +1,10 @@
 package nl.deruever.vorrin.ui.library
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,14 +24,22 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Headphones
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.sharp.Pause
 import androidx.compose.material.icons.sharp.PlayArrow
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialShapes
@@ -44,6 +54,9 @@ import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -77,11 +90,66 @@ fun LibraryScreen(
     val layoutDirection = LocalLayoutDirection.current
     val isPlaying by playerViewModel.isPlaying.collectAsState()
     val isRefreshing by viewModel.isLoading.collectAsState()
+    val selectedBookUris by viewModel.selectedBookUris.collectAsState()
+    val isSelectionMode = selectedBookUris.isNotEmpty()
+
+    BackHandler(enabled = isSelectionMode) {
+        viewModel.clearSelection()
+    }
 
     Scaffold(
         topBar = {
             if (folderUri != null) {
-                TopAppBar(title = { Text("Vorrin") })
+                if (isSelectionMode) {
+                    TopAppBar(
+                        title = { Text(text = "${selectedBookUris.size} selected", color = MaterialTheme.colorScheme.primary) },
+                        actions = {
+                            var menuExpanded by remember { mutableStateOf(false) }
+                            IconButton(onClick = { menuExpanded = true }) {
+                                Icon(Icons.Rounded.MoreVert, contentDescription = "More actions")
+                            }
+                            DropdownMenu(
+                                expanded = menuExpanded,
+                                onDismissRequest = { menuExpanded = false },
+                                shape = MaterialTheme.shapes.large,
+                                modifier = Modifier.padding(horizontal = 4.dp),
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Mark as finished", style = MaterialTheme.typography.bodyLarge) },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Rounded.CheckCircle,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    },
+                                    onClick = {
+                                        viewModel.markSelectedAsFinished()
+                                        menuExpanded = false
+                                    }
+                                )
+                                HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
+                                DropdownMenuItem(
+                                    text = { Text("Mark as unread", style = MaterialTheme.typography.bodyLarge) },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Rounded.RestartAlt,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    },
+                                    onClick = {
+                                        viewModel.markSelectedAsUnread()
+                                        menuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    )
+                } else {
+                    TopAppBar(title = { Text("Vorrin") })
+                }
             }
         },
         bottomBar = {
@@ -121,7 +189,15 @@ fun LibraryScreen(
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             items(books) { book ->
-                                BookItem(book = book, onClick = { onBookClick(book) })
+                                BookItem(
+                                    book = book,
+                                    isSelected = book.uri in selectedBookUris,
+                                    onLongPress = { viewModel.toggleBookSelection(book) },
+                                    onClick = {
+                                        if (isSelectionMode) viewModel.toggleBookSelection(book)
+                                        else onBookClick(book)
+                                    }
+                                )
                             }
                         }
                     }
@@ -131,34 +207,62 @@ fun LibraryScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun BookItem(book: Audiobook, onClick: () -> Unit) {
+fun BookItem(
+    book: Audiobook,
+    isSelected: Boolean = false,
+    onLongPress: () -> Unit = {},
+    onClick: () -> Unit
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() },
-        shape = MaterialTheme.shapes.medium, // Use theme shapes for consistency
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongPress
+            ),
+        shape = MaterialTheme.shapes.medium,
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AsyncImage(
-                model = book.coverArt,
-                contentDescription = "Cover art for ${book.title}",
+            Box(
                 modifier = Modifier
                     .size(64.dp)
                     .clip(RoundedCornerShape(8.dp)),
-                contentScale = ContentScale.Crop,
-                fallback = painterResource(android.R.drawable.ic_menu_gallery),
-                error = painterResource(android.R.drawable.ic_menu_gallery)
-            )
+            ) {
+                AsyncImage(
+                    model = book.coverArt,
+                    contentDescription = "Cover art for ${book.title}",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    fallback = painterResource(android.R.drawable.ic_menu_gallery),
+                    error = painterResource(android.R.drawable.ic_menu_gallery)
+                )
+                if (isSelected) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Check,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
+            }
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = book.title,
-                    style = MaterialTheme.typography.titleMedium, // Standardized typography
+                    style = MaterialTheme.typography.titleMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -238,7 +342,6 @@ private fun MiniPlayer(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Cover art
             AsyncImage(
                 model = book.coverArt,
                 contentDescription = "Cover art for ${book.title}",
@@ -250,7 +353,6 @@ private fun MiniPlayer(
                 error = painterResource(android.R.drawable.ic_menu_gallery)
             )
 
-            // Title and author
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = book.title,
@@ -267,7 +369,6 @@ private fun MiniPlayer(
                 )
             }
 
-            // Play/pause
             FilledTonalIconButton(onClick = onPlayPause) {
                 Icon(
                     imageVector = if (isPlaying) Icons.Sharp.Pause else Icons.Sharp.PlayArrow,
@@ -320,15 +421,15 @@ private fun IntroApp(onFolderPicked: (Uri) -> Unit) {
             }
 
             Surface(
-                shape = MaterialTheme.shapes.large, // Use standard M3 shapes instead of hardcoded dp
-                color = MaterialTheme.colorScheme.surfaceContainerHigh // or secondaryContainer
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh
             ) {
                 Text(
                     text = "Select the folder where you keep your .m4b files to get started.",
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(16.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant // or onSecondaryContainer
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
