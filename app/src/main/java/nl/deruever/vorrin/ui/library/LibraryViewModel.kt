@@ -35,7 +35,6 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val _isInitializing = MutableStateFlow(true)
     val isInitializing: StateFlow<Boolean> = _isInitializing.asStateFlow()
 
-    // Books come directly from the database as a Flow
     private val _books = MutableStateFlow<List<Audiobook>>(emptyList())
     val books: StateFlow<List<Audiobook>> = _books.asStateFlow()
 
@@ -51,10 +50,8 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         }
 
         viewModelScope.launch {
-            // Observe books from database
             bookRepository.getBooksFlow().collect { books ->
                 _books.value = books
-                // Update active book if its data changed in DB
                 if (currentActiveUri != null) {
                     _activeBook.value = books.find { it.uri == currentActiveUri }
                 }
