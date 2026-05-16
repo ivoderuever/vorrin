@@ -7,11 +7,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -19,6 +22,8 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 private val SPEED_OPTIONS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
@@ -60,22 +65,29 @@ internal fun SpeedSheet(
                         Text(
                             text = speed.formatSpeed(),
                             style = MaterialTheme.typography.bodyLarge,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurface
+                            color = if (isSelected) MaterialTheme.colorScheme.tertiary
+                            else MaterialTheme.colorScheme.onSurface,
                         )
                     },
                     trailingContent = if (isSelected) ({
                         Icon(
-                            imageVector = Icons.Rounded.Check,
+                            imageVector = Icons.Rounded.CheckCircle,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = MaterialTheme.colorScheme.tertiary,
                             modifier = Modifier.size(20.dp)
                         )
                     }) else null,
-                    modifier = Modifier.clickable {
-                        onSelect(speed)
-                        onDismiss()
-                    }
+                    colors = ListItemDefaults.colors(
+                        containerColor = if (isSelected) MaterialTheme.colorScheme.onTertiaryContainer
+                        else Color.Transparent
+                    ),
+                    modifier = Modifier
+                        .padding(horizontal = 10.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable {
+                            onSelect(speed)
+                            onDismiss()
+                        }
                 )
             }
         }
