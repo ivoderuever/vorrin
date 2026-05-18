@@ -91,6 +91,7 @@ fun LibraryScreen(
     val isPlaying by playerViewModel.isPlaying.collectAsState()
     val isRefreshing by viewModel.isLoading.collectAsState()
     val selectedBookUris by viewModel.selectedBookUris.collectAsState()
+    val hasFolderAccess by viewModel.hasFolderAccess.collectAsState()
     val isSelectionMode = selectedBookUris.isNotEmpty()
 
     BackHandler(enabled = isSelectionMode) {
@@ -174,6 +175,7 @@ fun LibraryScreen(
             when {
                 isInitializing || isLoading -> LoadingIndicator()
                 folderUri == null -> IntroApp(onFolderPicked = { viewModel.onFolderPicked(it) })
+                !hasFolderAccess -> AccessLost(onFolderPicked = { viewModel.onFolderPicked(it) })
                 books.isEmpty() -> NoBooks(onFolderPicked = { viewModel.onFolderPicked(it) })
                 else -> {
                     val pullState = rememberPullToRefreshState()
@@ -457,6 +459,40 @@ private fun NoBooks(onFolderPicked: (Uri) -> Unit) {
             )
 
             FolderPickButton(onFolderPicked = onFolderPicked, buttonText = "Change audiobook folder")
+        }
+    }
+}
+
+@Composable
+private fun AccessLost(onFolderPicked: (Uri) -> Unit) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 40.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            Text(
+                text = "Folder Access Lost",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.error
+            )
+
+            Text(
+                text = "Android revoked permission to your audiobook folder, or the folder was moved. Please select it again to restore access.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+
+            FolderPickButton(
+                onFolderPicked = onFolderPicked,
+                buttonText = "Reselect Folder"
+            )
         }
     }
 }

@@ -41,6 +41,9 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val _selectedBookUris = MutableStateFlow<Set<String>>(emptySet())
     val selectedBookUris: StateFlow<Set<String>> = _selectedBookUris.asStateFlow()
 
+    private val _hasFolderAccess = MutableStateFlow(true)
+    val hasFolderAccess: StateFlow<Boolean> = _hasFolderAccess.asStateFlow()
+
     private var currentActiveUri: String? = null
 
     init {
@@ -60,13 +63,19 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
 
         viewModelScope.launch {
             preferencesRepository.folderUri
-                .collect { uri ->
+                .collect { uriString ->
                     _isInitializing.value = false
-                    if (_folderUri.value != uri) {
-                        _folderUri.value = uri
-                        if (uri != null) {
-                            syncBooks(Uri.parse(uri))
+                    _folderUri.value = uriString
+                    if (uriString != null) {
+                        val uri = Uri.parse(uriString)
+                        val hasAccess = checkFolderAccess(uri)
+                        _hasFolderAccess.value = hasAccess
+
+                        if (hasAccess) {
+                            syncBooks(uri)
                         }
+                    } else {
+                        _hasFolderAccess.value = true
                     }
                 }
         }
@@ -124,14 +133,28 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    private fun checkFolderAccess(uri: Uri): Boolean {
+        val contentResolver = getApplication<Application>().contentResolver
+        val persistedUris = contentResolver.persistedUriPermissions
+        return persistedUris.any { it.uri == uri && it.isReadPermission }
+    }
+
     fun refresh() {
         viewModelScope.launch {
-            val uri = _folderUri.value ?: return@launch
-            _isLoading.value = true
-            val minDelay = launch { delay(1_500) }
-            bookRepository.syncFolder(Uri.parse(uri))
-            minDelay.join()
-            _isLoading.value = false
+            val uriString = _folderUri.value ?: return@launch
+            val uri = Uri.parse(uriString)
+
+            // VERIFY ACCESS ON MANUAL REFRESH TOO
+            val hasAccess = checkFolderAccess(uri)
+            _hasFolderAccess.value = hasAccess
+
+            if (hasAccess) {
+                _isLoading.value = true
+                val minDelay = launch { delay(1_500) }
+                bookRepository.syncFolder(uri)
+                minDelay.join()
+                _isLoading.value = false
+            }
         }
     }
 }

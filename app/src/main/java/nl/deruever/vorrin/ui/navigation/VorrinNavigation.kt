@@ -1,13 +1,18 @@
 package nl.deruever.vorrin.ui.navigation
 
-import androidx.compose.runtime.Composable
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -77,14 +82,21 @@ fun VorrinNavigation() {
 
         composable<PlayerRoute> { backStackEntry ->
             val args = backStackEntry.toRoute<PlayerRoute>()
-            val book = libraryViewModel.books.value.find { it.id == args.bookId }
-                ?: return@composable
 
-            PlayerScreen(
-                book = book,
-                playerViewModel = playerViewModel,
-                onBackClick = { navController.popBackStack() }
-            )
+            val books by libraryViewModel.books.collectAsState()
+            val book = books.find { it.id == args.bookId }
+
+            if (book == null) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    LoadingIndicator()
+                }
+            } else {
+                PlayerScreen(
+                    book = book,
+                    playerViewModel = playerViewModel,
+                    onBackClick = { navController.popBackStack() }
+                )
+            }
         }
     }
 }

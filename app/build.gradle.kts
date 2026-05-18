@@ -95,3 +95,11 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.kotlinx.serialization.json)
 }
+
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            output.outputFileName.set("Vorrin-${android.defaultConfig.versionName}-${variant.name}.apk")
+        }
+    }
+}

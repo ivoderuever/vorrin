@@ -52,6 +52,7 @@ class AudiobookService : MediaSessionService() {
                     .build(),
                 true
             )
+            .setWakeMode(C.WAKE_MODE_LOCAL)
             .setHandleAudioBecomingNoisy(true)
             .setSeekBackIncrementMs(15_000)
             .setSeekForwardIncrementMs(15_000)
