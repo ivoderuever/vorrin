@@ -110,7 +110,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }, MoreExecutors.directExecutor())
     }
 
-    // Converts controller position (chapter-relative) to absolute book position.
     private fun absolutePosition(): Long {
         val chapterIndex = controller?.currentMediaItemIndex ?: 0
         val chapterStart = chapters.getOrNull(chapterIndex)?.startTimeMs ?: 0L
@@ -124,8 +123,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         val state = ctrl.playbackState
         val expectedItemCount = if (book.chapters.isEmpty()) 1 else book.chapters.size
         val alreadyLoaded = loadedUri == book.uri &&
-            state != Player.STATE_IDLE &&
-            ctrl.mediaItemCount == expectedItemCount
+                state != Player.STATE_IDLE &&
+                ctrl.mediaItemCount == expectedItemCount
 
         if (alreadyLoaded) {
             _isReady.value = state == Player.STATE_READY
@@ -147,10 +146,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             .build()
 
         if (book.chapters.isEmpty()) {
+            val extras = Bundle().apply { putLong("chapter_start_time", 0L) }
             ctrl.setMediaItem(
                 MediaItem.Builder()
                     .setUri(bookUri)
-                    .setMediaMetadata(baseMetadata)
+                    .setMediaMetadata(baseMetadata.buildUpon().setExtras(extras).build())
                     .build(),
                 book.lastPosition
             )
@@ -159,10 +159,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
 
-        // One playlist item per chapter, each clipped to its exact time range.
-        // ExoPlayer reports position within the current item, so the notification
-        // and Bluetooth car display show chapter progress (0–100%) automatically.
         val mediaItems = book.chapters.map { chapter ->
+            val extras = Bundle().apply { putLong("chapter_start_time", chapter.startTimeMs) }
+
             MediaItem.Builder()
                 .setUri(bookUri)
                 .setClippingConfiguration(
@@ -176,6 +175,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                         .setSubtitle(chapter.title)
                         .setTrackNumber(chapter.index + 1)
                         .setTotalTrackCount(book.chapters.size)
+                        .setExtras(extras)
                         .build()
                 )
                 .build()
@@ -200,14 +200,10 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     isPlaybackActive = true
                     startPositionUpdates()
                 } else {
-                    // During chapter transitions, playWhenReady stays true — ExoPlayer just
-                    // pauses briefly between items. Only show the "paused" icon when the
-                    // user actually paused (playWhenReady = false).
                     if (controller?.playWhenReady != true) {
                         _isPlaying.value = false
                     }
                     _currentPositionMs.value = absolutePosition()
-                    savePosition()
                 }
             }
 
@@ -226,15 +222,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 _currentPositionMs.value = absolutePosition()
-                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && isPlaybackActive) {
-                    controller?.play()
-                }
             }
         })
 
         controller?.setPlaybackParameters(PlaybackParameters(_playbackSpeed.value))
 
-        // Sync immediately if the service is already in STATE_READY.
         if (controller?.playbackState == Player.STATE_READY) {
             _isReady.value = true
             _duration.value = totalDuration
@@ -247,14 +239,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private fun startPositionUpdates() {
         positionUpdateJob?.cancel()
         positionUpdateJob = viewModelScope.launch {
-            var ticks = 0
             while (true) {
                 _currentPositionMs.value = absolutePosition()
                 delay(1000)
-                if (++ticks >= 30) {
-                    savePosition()
-                    ticks = 0
-                }
             }
         }
     }
@@ -273,6 +260,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             controller?.seekTo(idx, offset)
         }
         _currentPositionMs.value = absoluteMs
+        // We still trigger a manual save via the ViewModel on explicit user seek actions.
         savePosition(absoluteMs)
     }
 

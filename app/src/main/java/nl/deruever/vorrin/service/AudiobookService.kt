@@ -7,6 +7,7 @@ import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
@@ -22,8 +23,17 @@ import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import nl.deruever.vorrin.MainActivity
 import nl.deruever.vorrin.data.BookCache
+import nl.deruever.vorrin.data.db.VorrinDatabase
 
 class AudiobookService : MediaSessionService() {
 
@@ -33,6 +43,10 @@ class AudiobookService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
     private var skipDurationMs: Long = 15_000L
+
+    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var positionSaveJob: Job? = null
+    private val bookDao by lazy { VorrinDatabase.getInstance(this).bookDao() }
 
     @OptIn(UnstableApi::class)
     override fun onCreate() {
@@ -62,6 +76,35 @@ class AudiobookService : MediaSessionService() {
                     .build()
             )
             .build()
+
+        player.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying) {
+                    positionSaveJob?.cancel()
+                    positionSaveJob = serviceScope.launch {
+                        while (isActive) {
+                            delay(30_000)
+                            saveCurrentPosition(player)
+                        }
+                    }
+                } else {
+                    positionSaveJob?.cancel()
+                    if (player.playbackState != Player.STATE_IDLE) {
+                        saveCurrentPosition(player)
+                    }
+                }
+            }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
+                    saveCurrentPosition(player)
+                }
+
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                    player.play()
+                }
+            }
+        })
 
         // Redirect seekToNext/seekToPrevious (Bluetooth earbuds) to skip increments
         // instead of jumping to the next chapter item in the playlist.
@@ -135,6 +178,23 @@ class AudiobookService : MediaSessionService() {
             .build()
     }
 
+    private fun saveCurrentPosition(player: Player) {
+        if (player.playbackState == Player.STATE_IDLE) return
+
+        val mediaItem = player.currentMediaItem ?: return
+        val uri = mediaItem.localConfiguration?.uri?.toString() ?: return
+
+        val extras = mediaItem.mediaMetadata.extras ?: return
+        if (!extras.containsKey("chapter_start_time")) return
+
+        val chapterStart = extras.getLong("chapter_start_time")
+        val absolutePos = chapterStart + player.currentPosition.coerceAtLeast(0L)
+
+        serviceScope.launch(Dispatchers.IO) {
+            bookDao.updatePosition(uri, absolutePos)
+        }
+    }
+
     override fun onTaskRemoved(rootIntent: Intent?) {
         mediaSession?.player?.pause()
         stopSelf()
@@ -145,6 +205,10 @@ class AudiobookService : MediaSessionService() {
         mediaSession
 
     override fun onDestroy() {
+        positionSaveJob?.cancel()
+        mediaSession?.player?.let { saveCurrentPosition(it) }
+        serviceScope.cancel()
+
         mediaSession?.run {
             player.release()
             release()
