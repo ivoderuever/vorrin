@@ -37,6 +37,12 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var controller: MediaController? = null
     private var currentBookUri: String? = null
     private var chapters: List<Chapter> = emptyList()
+    // Tracks which chapter we're in. The controller reports chapter-relative
+    // position (because the service's ForwardingPlayer presents chapter-scoped
+    // values to MediaSession), so we combine these to get absolute book time.
+    // Updated on connect, on seek, and via onMediaMetadataChanged when the
+    // service advances chapters naturally.
+    private var currentChapterIndex: Int = 0
     private var totalDuration: Long = 0L
     private var positionUpdateJob: Job? = null
     private var startPositionOverride: Pair<String, Long>? = null
@@ -45,6 +51,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
+    // Absolute (whole-book) position, for UI book progress and DB writes.
     private val _currentPositionMs = MutableStateFlow(0L)
     val currentPositionMs: StateFlow<Long> = _currentPositionMs.asStateFlow()
 
@@ -77,6 +84,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
         currentBookUri = effectiveBook.uri
         chapters = effectiveBook.chapters
+        currentChapterIndex = chapterIndexFor(effectiveBook.lastPosition)
         totalDuration = effectiveBook.duration
         positionUpdateJob?.cancel()
 
@@ -93,6 +101,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         val context = getApplication<Application>()
 
         if (controller != null) {
+            syncFromExistingSession(effectiveBook)
             loadBookIntoService(context, effectiveBook)
             return
         }
@@ -106,14 +115,45 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         controllerFuture?.addListener({
             controller = controllerFuture?.get()
             setupListener()
+            syncFromExistingSession(effectiveBook)
             loadBookIntoService(context, effectiveBook)
         }, MoreExecutors.directExecutor())
     }
 
+    private fun chapterIndexFor(absoluteMs: Long): Int =
+        if (chapters.isEmpty()) 0
+        else chapters.indexOfLast { it.startTimeMs <= absoluteMs }.coerceAtLeast(0)
+
+    /**
+     * If the service is already running this book (e.g., app reopened mid car
+     * trip after the ViewModel was cleared), pull the current chapter index
+     * out of the live MediaItem's extras so we don't trust the stale
+     * lastPosition from the DB.
+     */
+    private fun syncFromExistingSession(book: Audiobook) {
+        val ctrl = controller ?: return
+        val mediaItem = ctrl.currentMediaItem ?: return
+        val sessionUri = mediaItem.localConfiguration?.uri?.toString() ?: return
+        if (sessionUri != book.uri) return
+
+        val idx = mediaItem.mediaMetadata.extras
+            ?.getInt(AudiobookService.EXTRA_CURRENT_CHAPTER_INDEX, -1) ?: -1
+        if (idx >= 0 && idx in chapters.indices) {
+            currentChapterIndex = idx
+        }
+    }
+
+    /**
+     * Combines our tracked chapter index with the controller's chapter-relative
+     * position to produce absolute book time.
+     */
     private fun absolutePosition(): Long {
-        val chapterIndex = controller?.currentMediaItemIndex ?: 0
-        val chapterStart = chapters.getOrNull(chapterIndex)?.startTimeMs ?: 0L
-        return chapterStart + (controller?.currentPosition ?: 0L).coerceAtLeast(0L)
+        val chapterRel = (controller?.currentPosition ?: 0L).coerceAtLeast(0L)
+        return if (chapters.isNotEmpty() && currentChapterIndex in chapters.indices) {
+            chapters[currentChapterIndex].startTimeMs + chapterRel
+        } else {
+            chapterRel
+        }
     }
 
     private fun loadBookIntoService(context: Context, book: Audiobook) {
@@ -121,10 +161,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
         val loadedUri = ctrl.currentMediaItem?.localConfiguration?.uri?.toString()
         val state = ctrl.playbackState
-        val expectedItemCount = if (book.chapters.isEmpty()) 1 else book.chapters.size
-        val alreadyLoaded = loadedUri == book.uri &&
-                state != Player.STATE_IDLE &&
-                ctrl.mediaItemCount == expectedItemCount
+        val alreadyLoaded = loadedUri == book.uri && state != Player.STATE_IDLE
 
         if (alreadyLoaded) {
             _isReady.value = state == Player.STATE_READY
@@ -139,55 +176,35 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         context.startService(Intent(context, AudiobookService::class.java))
 
         val bookUri = android.net.Uri.parse(book.uri)
-        val baseMetadata = MediaMetadata.Builder()
+
+        // Chapter data lives in MediaItem extras so it survives ViewModel death
+        val extras = Bundle().apply {
+            if (book.chapters.isNotEmpty()) {
+                putStringArray(AudiobookService.EXTRA_CHAPTER_TITLES, book.chapters.map { it.title }.toTypedArray())
+                putLongArray(AudiobookService.EXTRA_CHAPTER_START_TIMES, book.chapters.map { it.startTimeMs }.toLongArray())
+                putLongArray(AudiobookService.EXTRA_CHAPTER_END_TIMES, book.chapters.map { it.endTimeMs }.toLongArray())
+                putInt(AudiobookService.EXTRA_CURRENT_CHAPTER_INDEX, currentChapterIndex)
+            }
+        }
+
+        val initialChapterTitle = book.chapters.getOrNull(currentChapterIndex)?.title
+
+        val metadata = MediaMetadata.Builder()
             .setTitle(book.title)
             .setArtist(book.author)
+            .apply {
+                if (initialChapterTitle != null) setSubtitle(initialChapterTitle)
+            }
             .setArtworkData(book.coverArt, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+            .setExtras(extras)
             .build()
 
-        if (book.chapters.isEmpty()) {
-            val extras = Bundle().apply { putLong("chapter_start_time", 0L) }
-            ctrl.setMediaItem(
-                MediaItem.Builder()
-                    .setUri(bookUri)
-                    .setMediaMetadata(baseMetadata.buildUpon().setExtras(extras).build())
-                    .build(),
-                book.lastPosition
-            )
-            ctrl.prepare()
-            ctrl.playWhenReady = false
-            return
-        }
+        val mediaItem = MediaItem.Builder()
+            .setUri(bookUri)
+            .setMediaMetadata(metadata)
+            .build()
 
-        val mediaItems = book.chapters.map { chapter ->
-            val extras = Bundle().apply { putLong("chapter_start_time", chapter.startTimeMs) }
-
-            MediaItem.Builder()
-                .setUri(bookUri)
-                .setClippingConfiguration(
-                    MediaItem.ClippingConfiguration.Builder()
-                        .setStartPositionMs(chapter.startTimeMs)
-                        .setEndPositionMs(chapter.endTimeMs)
-                        .build()
-                )
-                .setMediaMetadata(
-                    baseMetadata.buildUpon()
-                        .setSubtitle(chapter.title)
-                        .setTrackNumber(chapter.index + 1)
-                        .setTotalTrackCount(book.chapters.size)
-                        .setExtras(extras)
-                        .build()
-                )
-                .build()
-        }
-
-        val startIndex = book.chapters
-            .indexOfLast { it.startTimeMs <= book.lastPosition }
-            .coerceAtLeast(0)
-        val startOffset = (book.lastPosition - book.chapters[startIndex].startTimeMs)
-            .coerceAtLeast(0L)
-
-        ctrl.setMediaItems(mediaItems, startIndex, startOffset)
+        ctrl.setMediaItem(mediaItem, book.lastPosition)
         ctrl.prepare()
         ctrl.playWhenReady = false
     }
@@ -223,6 +240,20 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 _currentPositionMs.value = absolutePosition()
             }
+
+            // The service writes EXTRA_CURRENT_CHAPTER_INDEX into extras when
+            // a chapter boundary is crossed. That triggers this callback here
+            // (even though no visible metadata changed), giving us a clean
+            // synchronization signal.
+            override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
+                val idx = mediaMetadata.extras
+                    ?.getInt(AudiobookService.EXTRA_CURRENT_CHAPTER_INDEX, -1)
+                    ?: -1
+                if (idx >= 0 && idx in chapters.indices && idx != currentChapterIndex) {
+                    currentChapterIndex = idx
+                    _currentPositionMs.value = absolutePosition()
+                }
+            }
         })
 
         controller?.setPlaybackParameters(PlaybackParameters(_playbackSpeed.value))
@@ -251,17 +282,22 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         else controller?.play()
     }
 
+    /**
+     * Always use this for ViewModel-initiated seeks. Goes through the
+     * SEEK_ABSOLUTE custom command so the service bypasses the chapter-scoped
+     * ForwardingPlayer.seekTo and seeks the underlying player directly.
+     */
     fun seekTo(absoluteMs: Long) {
-        if (chapters.isEmpty()) {
-            controller?.seekTo(absoluteMs)
-        } else {
-            val idx = chapters.indexOfLast { it.startTimeMs <= absoluteMs }.coerceAtLeast(0)
-            val offset = (absoluteMs - chapters[idx].startTimeMs).coerceAtLeast(0L)
-            controller?.seekTo(idx, offset)
+        val target = absoluteMs.coerceAtLeast(0L).let {
+            if (totalDuration > 0L) it.coerceAtMost(totalDuration) else it
         }
-        _currentPositionMs.value = absoluteMs
-        // We still trigger a manual save via the ViewModel on explicit user seek actions.
-        savePosition(absoluteMs)
+        if (chapters.isNotEmpty()) {
+            currentChapterIndex = chapterIndexFor(target)
+        }
+        val args = Bundle().apply { putLong("position", target) }
+        controller?.sendCustomCommand(AudiobookService.SEEK_ABSOLUTE, args)
+        _currentPositionMs.value = target
+        savePosition(target)
     }
 
     fun skipForward(seconds: Int) {
@@ -275,16 +311,20 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun chapterBack() {
-        val currentIndex = controller?.currentMediaItemIndex ?: return
-        val targetIndex = (currentIndex - 1).coerceAtLeast(0)
-        val targetMs = chapters.getOrNull(targetIndex)?.startTimeMs ?: 0L
-        seekTo(targetMs)
+        if (chapters.isEmpty()) return
+        val chapterRel = (controller?.currentPosition ?: 0L).coerceAtLeast(0L)
+        val targetIdx = if (chapterRel > 2_000L) {
+            currentChapterIndex
+        } else {
+            (currentChapterIndex - 1).coerceAtLeast(0)
+        }
+        seekTo(chapters[targetIdx].startTimeMs)
     }
 
     fun chapterForward() {
-        val currentIndex = controller?.currentMediaItemIndex ?: return
-        val targetMs = chapters.getOrNull(currentIndex + 1)?.startTimeMs ?: return
-        seekTo(targetMs)
+        if (chapters.isEmpty()) return
+        val nextChapter = chapters.getOrNull(currentChapterIndex + 1) ?: return
+        seekTo(nextChapter.startTimeMs)
     }
 
     fun setSkipDuration(seconds: Int) {
@@ -310,6 +350,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         } else {
             startPositionOverride = book.uri to 0L
             currentBookUri = null
+            currentChapterIndex = 0
         }
     }
 
