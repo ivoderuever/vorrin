@@ -41,13 +41,9 @@ class AudiobookService : MediaSessionService() {
         val SET_SKIP_DURATION = SessionCommand("set_skip_duration", Bundle.EMPTY)
         val SEEK_ABSOLUTE = SessionCommand("seek_absolute", Bundle.EMPTY)
 
-        // Parallel arrays in MediaItem extras — survive process serialization
-        // so the service can do chapter watching with no ViewModel attached.
         const val EXTRA_CHAPTER_TITLES = "chapter_titles"
         const val EXTRA_CHAPTER_START_TIMES = "chapter_start_times"
         const val EXTRA_CHAPTER_END_TIMES = "chapter_end_times"
-        // Service writes this on every chapter advance; ViewModel reads it on
-        // reconnect to re-sync after being killed.
         const val EXTRA_CURRENT_CHAPTER_INDEX = "current_chapter_index"
 
         private const val SEEK_ABSOLUTE_KEY = "position"
@@ -285,7 +281,6 @@ class AudiobookService : MediaSessionService() {
      * so the ViewModel can stay in sync.
      *
      * The visible MediaMetadata fields (title, artist, album, subtitle) are
-     * NOT touched here — only extras. Title stays as the book name throughout.
      */
     @OptIn(UnstableApi::class)
     private fun startChapterWatch(player: Player) {
@@ -307,8 +302,6 @@ class AudiobookService : MediaSessionService() {
                             putInt(EXTRA_CURRENT_CHAPTER_INDEX, idx)
                         }
 
-                        // Because we use buildUpon(), the Title, Artist, and AlbumTitle
-                        // remain perfectly intact. We only overwrite the Subtitle and Extras.
                         val updatedMetadata = currentItem.mediaMetadata.buildUpon()
                             .setSubtitle(newChapterTitle)
                             .setExtras(newExtras)

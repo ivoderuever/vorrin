@@ -37,11 +37,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var controller: MediaController? = null
     private var currentBookUri: String? = null
     private var chapters: List<Chapter> = emptyList()
-    // Tracks which chapter we're in. The controller reports chapter-relative
-    // position (because the service's ForwardingPlayer presents chapter-scoped
-    // values to MediaSession), so we combine these to get absolute book time.
-    // Updated on connect, on seek, and via onMediaMetadataChanged when the
-    // service advances chapters naturally.
     private var currentChapterIndex: Int = 0
     private var totalDuration: Long = 0L
     private var positionUpdateJob: Job? = null
@@ -241,10 +236,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 _currentPositionMs.value = absolutePosition()
             }
 
-            // The service writes EXTRA_CURRENT_CHAPTER_INDEX into extras when
-            // a chapter boundary is crossed. That triggers this callback here
-            // (even though no visible metadata changed), giving us a clean
-            // synchronization signal.
             override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
                 val idx = mediaMetadata.extras
                     ?.getInt(AudiobookService.EXTRA_CURRENT_CHAPTER_INDEX, -1)
