@@ -69,6 +69,10 @@ app/src/main/java/nl/deruever/vorrin/
     └── AudiobookService.kt  # Foreground service for background playback
 ```
 
+## Download
+
+Get the latest APK from the [Releases](../../releases) page.
+
 ## License
 
-This project is currently unlicensed.
+Licensed under the [GNU General Public License v3.0](LICENSE).
