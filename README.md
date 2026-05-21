@@ -19,6 +19,8 @@ Vorrin is completely free, open-source, and contains no ads or tracking. Just pi
   <img src="screenshots/vorrin-player.png" width="270" alt="Player screen"/>
 </p>
 
+<p align="center"><i>Colors adapt to your device's system theme (Material You).</i></p>
+
 ## Download
 
 Get the latest APK directly from the [Releases](../../releases) page. 
