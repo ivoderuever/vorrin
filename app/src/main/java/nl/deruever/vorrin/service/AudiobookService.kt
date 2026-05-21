@@ -1,7 +1,10 @@
 package nl.deruever.vorrin.service
 
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.os.Bundle
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
@@ -52,9 +55,6 @@ class AudiobookService : MediaSessionService() {
     private val DEBUG_DISABLE_CACHE = false
 
     private var mediaSession: MediaSession? = null
-    // Direct reference to the underlying ExoPlayer (bypassing the
-    // ForwardingPlayer wrapper). Used wherever we need ABSOLUTE position —
-    // saving to DB, the SEEK_ABSOLUTE command, the chapter watch.
     private var underlyingPlayer: ExoPlayer? = null
     private var skipDurationMs: Long = 15_000L
     private var lastChapterIndex: Int = -1
@@ -63,6 +63,74 @@ class AudiobookService : MediaSessionService() {
     private var positionSaveJob: Job? = null
     private var chapterWatchJob: Job? = null
     private val bookDao by lazy { VorrinDatabase.getInstance(this).bookDao() }
+
+    private val audioManager by lazy {
+        getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    }
+    private var audioFocusRequest: AudioFocusRequest? = null
+    private var playOnFocusGain = false
+
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        val player = mediaSession?.player ?: return@OnAudioFocusChangeListener
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                if (playOnFocusGain) {
+                    playOnFocusGain = false
+                    player.play()
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                playOnFocusGain = false
+                player.pause()
+                abandonAudioFocus()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                playOnFocusGain = player.isPlaying
+                player.pause()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                playOnFocusGain = player.isPlaying
+                player.pause()
+            }
+        }
+    }
+
+    private fun requestAudioFocus(): Boolean {
+        if (audioFocusRequest != null) return true
+
+        val platformAudioAttrs = android.media.AudioAttributes.Builder()
+            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+            .build()
+
+        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(platformAudioAttrs)
+            .setOnAudioFocusChangeListener(focusListener)
+            .setWillPauseWhenDucked(true)
+            .setAcceptsDelayedFocusGain(true)
+            .build()
+
+        return when (audioManager.requestAudioFocus(request)) {
+            AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> {
+                audioFocusRequest = request
+                true
+            }
+            AudioManager.AUDIOFOCUS_REQUEST_DELAYED -> {
+                audioFocusRequest = request
+                playOnFocusGain = true
+                false
+            }
+            else -> false
+        }
+    }
+
+    private fun abandonAudioFocus() {
+        audioFocusRequest?.let {
+            audioManager.abandonAudioFocusRequest(it)
+        }
+        audioFocusRequest = null
+        playOnFocusGain = false
+    }
 
     private data class ServiceChapter(val title: String, val startMs: Long, val endMs: Long)
 
@@ -95,7 +163,7 @@ class AudiobookService : MediaSessionService() {
                     .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
                     .setUsage(C.USAGE_MEDIA)
                     .build(),
-                true
+                false
             )
             .setWakeMode(C.WAKE_MODE_LOCAL)
             .setHandleAudioBecomingNoisy(true)
@@ -135,16 +203,16 @@ class AudiobookService : MediaSessionService() {
                     saveCurrentPosition()
                 }
             }
+
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_ENDED) {
+                    abandonAudioFocus()
+                }
+            }
         })
 
-        // ForwardingPlayer that presents chapter-scoped duration/position to
-        // MediaSession. The notification, AVRCP, and Android Auto derive their
-        // progress display from these values. The underlying ExoPlayer still
-        // operates in absolute book time.
-        //
-        // Convention inside this object:
-        //   super.X()   → ForwardingPlayer's impl → underlying = ABSOLUTE
-        //   X()         → our chapter-scoped value
+        // ForwardingPlayer that presents chapter-scoped duration/position to MediaSession.
+        // If no chapters are available, overrides fall through to absolute values.
         val wrappedPlayer = object : ForwardingPlayer(player) {
 
             private fun currentChapter(): ServiceChapter? {
@@ -153,11 +221,6 @@ class AudiobookService : MediaSessionService() {
                 val absPos = super.getCurrentPosition().coerceAtLeast(0L)
                 return chapters.lastOrNull { it.startMs <= absPos } ?: chapters.firstOrNull()
             }
-
-            // --- Chapter-scoped reporting ---
-            // If no chapters are available, every override falls through to
-            // the absolute values, so books without chapters behave like a
-            // normal single-track audio file.
 
             override fun getCurrentPosition(): Long {
                 val ch = currentChapter() ?: return super.getCurrentPosition()
@@ -180,8 +243,6 @@ class AudiobookService : MediaSessionService() {
             override fun getContentDuration(): Long = getDuration()
             override fun getContentBufferedPosition(): Long = getBufferedPosition()
 
-            // External seeks (notification seek bar, AVRCP) arrive in our
-            // chapter-scoped frame. Translate to absolute.
             override fun seekTo(positionMs: Long) {
                 val ch = currentChapter()
                 if (ch == null) {
@@ -193,7 +254,6 @@ class AudiobookService : MediaSessionService() {
                 }
             }
 
-            // Skip increments work in absolute so they cross chapter boundaries.
             override fun seekToNext() = seekForward()
             override fun seekToPrevious() = seekBack()
             override fun getSeekBackIncrement() = skipDurationMs
@@ -208,6 +268,18 @@ class AudiobookService : MediaSessionService() {
                 val absolute = (super.getCurrentPosition() + skipDurationMs)
                     .coerceAtMost(super.getDuration().coerceAtLeast(0L))
                 super.seekTo(absolute)
+            }
+
+            override fun play() {
+                if (requestAudioFocus()) super.play()
+            }
+
+            override fun setPlayWhenReady(playWhenReady: Boolean) {
+                if (playWhenReady) {
+                    if (requestAudioFocus()) super.setPlayWhenReady(true)
+                } else {
+                    super.setPlayWhenReady(false)
+                }
             }
         }
 
@@ -276,11 +348,9 @@ class AudiobookService : MediaSessionService() {
 
     /**
      * Watch the underlying (absolute) position while playing. When we cross
-     * into a new chapter, update the MediaItem extras with the new chapter
-     * index. This fires onMediaMetadataChanged on any connected MediaController
-     * so the ViewModel can stay in sync.
-     *
-     * The visible MediaMetadata fields (title, artist, album, subtitle) are
+     * into a new chapter, update the MediaItem's subtitle (chapter title) and
+     * extras (chapter index). This fires onMediaMetadataChanged on any
+     * connected MediaController so the ViewModel can stay in sync.
      */
     @OptIn(UnstableApi::class)
     private fun startChapterWatch(player: Player) {
@@ -345,6 +415,7 @@ class AudiobookService : MediaSessionService() {
         positionSaveJob?.cancel()
         chapterWatchJob?.cancel()
         saveCurrentPosition()
+        abandonAudioFocus()
         serviceScope.cancel()
 
         mediaSession?.run {
