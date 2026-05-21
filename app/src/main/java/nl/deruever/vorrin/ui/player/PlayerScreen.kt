@@ -84,6 +84,7 @@ fun PlayerScreen(
             Spacer(modifier = Modifier.weight(0.5f))
 
             PlayerCover(
+                bookId = book.uri,
                 title = book.title,
                 coverArt = book.coverArt,
                 modifier = Modifier

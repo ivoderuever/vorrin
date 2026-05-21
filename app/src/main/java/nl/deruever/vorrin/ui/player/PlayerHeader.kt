@@ -12,6 +12,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,9 +39,16 @@ internal fun PlayerTopBar(onBackClick: () -> Unit) {
 }
 
 @Composable
-internal fun PlayerCover(title: String, coverArt: ByteArray? = null, modifier: Modifier = Modifier) {
+internal fun PlayerCover(
+    bookId: String,
+    title: String,
+    coverArt: ByteArray? = null,
+    modifier: Modifier = Modifier
+) {
+    val stableCoverArt = remember(bookId) { coverArt }
+
     AsyncImage(
-        model = coverArt,
+        model = stableCoverArt, // Pass the stable reference to Coil
         contentDescription = "Cover art for $title",
         modifier = modifier
             .clip(RoundedCornerShape(24.dp)),
