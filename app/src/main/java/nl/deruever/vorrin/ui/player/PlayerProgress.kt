@@ -1,3 +1,4 @@
+﻿// Vorrin — Copyright (C) 2026 Ivo de Ruever — Licensed under GPL-3.0
 package nl.deruever.vorrin.ui.player
 
 import androidx.compose.foundation.layout.Arrangement
