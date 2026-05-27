@@ -3,10 +3,10 @@ package nl.deruever.vorrin.ui.player
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
@@ -84,17 +84,20 @@ fun PlayerScreen(
 
             Spacer(modifier = Modifier.weight(0.5f))
 
-            PlayerCover(
-                bookId = book.uri,
-                title = book.title,
-                coverArt = book.coverArt,
-                modifier = Modifier
-                    .weight(10f, fill = false)
-                    .size(280.dp)
-                    .aspectRatio(1f)
-            )
+            BoxWithConstraints(
+                modifier = Modifier.weight(10f, fill = false),
+                contentAlignment = Alignment.Center
+            ) {
+                val coverSize = (maxWidth * 0.85f).coerceAtMost(maxHeight).coerceAtMost(280.dp)
+                PlayerCover(
+                    bookId = book.uri,
+                    title = book.title,
+                    coverArt = book.coverArt,
+                    modifier = Modifier.size(coverSize)
+                )
+            }
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.weight(0.7f))
 
             PlayerBookInfo(book = book, currentPositionMs = currentPositionMs, duration = duration)
 
