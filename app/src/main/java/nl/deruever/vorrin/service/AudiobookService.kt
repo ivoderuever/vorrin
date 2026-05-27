@@ -82,16 +82,16 @@ class AudiobookService : MediaSessionService() {
             }
             AudioManager.AUDIOFOCUS_LOSS -> {
                 playOnFocusGain = false
-                player.pause()
+                underlyingPlayer?.pause()
                 abandonAudioFocus()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                 playOnFocusGain = player.isPlaying
-                player.pause()
+                underlyingPlayer?.pause()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 playOnFocusGain = player.isPlaying
-                player.pause()
+                underlyingPlayer?.pause()
             }
         }
     }
@@ -275,10 +275,16 @@ class AudiobookService : MediaSessionService() {
                 if (requestAudioFocus()) super.play()
             }
 
+            override fun pause() {
+                playOnFocusGain = false
+                super.pause()
+            }
+
             override fun setPlayWhenReady(playWhenReady: Boolean) {
                 if (playWhenReady) {
                     if (requestAudioFocus()) super.setPlayWhenReady(true)
                 } else {
+                    playOnFocusGain = false
                     super.setPlayWhenReady(false)
                 }
             }
