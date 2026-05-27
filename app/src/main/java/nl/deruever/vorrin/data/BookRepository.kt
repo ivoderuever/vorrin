@@ -59,14 +59,25 @@ class BookRepository(
         ordered.forEach { prewarmCache(Uri.parse(it)) }
     }
 
-    // Scan folder, index new books, remove deleted ones
+    // Recursively collect all .m4b files under a DocumentFile directory
+    private fun collectM4bFiles(folder: DocumentFile): Map<String, DocumentFile> {
+        val result = mutableMapOf<String, DocumentFile>()
+        for (file in folder.listFiles()) {
+            when {
+                file.isDirectory -> result.putAll(collectM4bFiles(file))
+                file.isFile && file.name?.lowercase()?.endsWith(".m4b") == true ->
+                    result[file.uri.toString()] = file
+            }
+        }
+        return result
+    }
+
+    // Scan folder (recursively), index new books, remove deleted ones
     suspend fun syncFolder(folderUri: Uri) = syncMutex.withLock {
         withContext(Dispatchers.IO) {
             val folder = DocumentFile.fromTreeUri(context, folderUri) ?: return@withContext
 
-            val filesOnDisk = folder.listFiles()
-                .filter { it.isFile && it.name?.lowercase()?.endsWith(".m4b") == true }
-                .associate { it.uri.toString() to it }
+            val filesOnDisk = collectM4bFiles(folder)
 
             val urisInDb = bookDao.getAllBookUris().toSet()
 
