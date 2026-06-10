@@ -3,8 +3,6 @@ package nl.deruever.vorrin.ui.player
 
 import android.app.Application
 import android.content.ComponentName
-import android.content.Intent
-import android.content.Context
 import android.os.Bundle
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -67,7 +65,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             _skipDurationSeconds.value = preferencesRepository.getSkipDuration()
             _playbackSpeed.value = preferencesRepository.getPlaybackSpeed()
-            controller?.setPlaybackParameters(PlaybackParameters(_playbackSpeed.value))
         }
     }
 
@@ -98,7 +95,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
         if (controller != null) {
             syncFromExistingSession(effectiveBook)
-            loadBookIntoService(context, effectiveBook)
+            loadBookIntoService(effectiveBook)
             return
         }
 
@@ -112,7 +109,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             controller = controllerFuture?.get()
             setupListener()
             syncFromExistingSession(effectiveBook)
-            loadBookIntoService(context, effectiveBook)
+            loadBookIntoService(effectiveBook)
         }, MoreExecutors.directExecutor())
     }
 
@@ -152,7 +149,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun loadBookIntoService(context: Context, book: Audiobook) {
+    private fun loadBookIntoService(book: Audiobook) {
         val ctrl = controller ?: return
 
         val loadedUri = ctrl.currentMediaItem?.localConfiguration?.uri?.toString()
@@ -168,8 +165,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             if (ctrl.isPlaying) startPositionUpdates()
             return
         }
-
-        context.startService(Intent(context, AudiobookService::class.java))
 
         val bookUri = android.net.Uri.parse(book.uri)
 

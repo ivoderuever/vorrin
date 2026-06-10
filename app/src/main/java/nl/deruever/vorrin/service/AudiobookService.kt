@@ -7,6 +7,7 @@ import android.content.Intent
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -37,6 +38,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import nl.deruever.vorrin.MainActivity
 import nl.deruever.vorrin.data.BookCache
+import nl.deruever.vorrin.data.PreferencesRepository
 import nl.deruever.vorrin.data.db.VorrinDatabase
 
 class AudiobookService : MediaSessionService() {
@@ -51,6 +53,9 @@ class AudiobookService : MediaSessionService() {
         const val EXTRA_CURRENT_CHAPTER_INDEX = "current_chapter_index"
 
         private const val SEEK_ABSOLUTE_KEY = "position"
+
+        private const val REWIND_PAUSE_THRESHOLD_MS = 2 * 60_000L
+        private const val REWIND_AMOUNT_MS = 10_000L
     }
 
     private val DEBUG_DISABLE_CACHE = false
@@ -58,16 +63,30 @@ class AudiobookService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var underlyingPlayer: ExoPlayer? = null
     private var skipDurationMs: Long = 15_000L
+
     private var lastChapterIndex: Int = -1
+    private var lastBookUri: String? = null
+
+    private var rewindOnResumeEnabled = true
+    private var pausedAtElapsedMs: Long? = null
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var positionSaveJob: Job? = null
     private var chapterWatchJob: Job? = null
     private val bookDao by lazy { VorrinDatabase.getInstance(this).bookDao() }
+    private val preferencesRepository by lazy { PreferencesRepository(this) }
 
     private val audioManager by lazy {
         getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
+
+    // ---------------------------------------------------------------------
+    // Audio focus
+    // ---------------------------------------------------------------------
+
+    private enum class FocusState { NONE, PENDING, GRANTED }
+
+    private var focusState = FocusState.NONE
     private var audioFocusRequest: AudioFocusRequest? = null
     private var playOnFocusGain = false
 
@@ -75,6 +94,7 @@ class AudiobookService : MediaSessionService() {
         val player = mediaSession?.player ?: return@OnAudioFocusChangeListener
         when (focusChange) {
             AudioManager.AUDIOFOCUS_GAIN -> {
+                focusState = FocusState.GRANTED
                 if (playOnFocusGain) {
                     playOnFocusGain = false
                     player.play()
@@ -97,7 +117,14 @@ class AudiobookService : MediaSessionService() {
     }
 
     private fun requestAudioFocus(): Boolean {
-        if (audioFocusRequest != null) return true
+        when (focusState) {
+            FocusState.GRANTED -> return true
+            FocusState.PENDING -> {
+                playOnFocusGain = true
+                return false
+            }
+            FocusState.NONE -> Unit
+        }
 
         val platformAudioAttrs = android.media.AudioAttributes.Builder()
             .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -114,10 +141,12 @@ class AudiobookService : MediaSessionService() {
         return when (audioManager.requestAudioFocus(request)) {
             AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> {
                 audioFocusRequest = request
+                focusState = FocusState.GRANTED
                 true
             }
             AudioManager.AUDIOFOCUS_REQUEST_DELAYED -> {
                 audioFocusRequest = request
+                focusState = FocusState.PENDING
                 playOnFocusGain = true
                 false
             }
@@ -130,10 +159,41 @@ class AudiobookService : MediaSessionService() {
             audioManager.abandonAudioFocusRequest(it)
         }
         audioFocusRequest = null
+        focusState = FocusState.NONE
         playOnFocusGain = false
     }
 
+    // ---------------------------------------------------------------------
+    // Rewind on resume
+    // ---------------------------------------------------------------------
+
+    private fun applyResumeRewindIfNeeded() {
+        if (!rewindOnResumeEnabled) return
+        val player = underlyingPlayer ?: return
+        val pausedAt = pausedAtElapsedMs ?: return
+        pausedAtElapsedMs = null
+
+        if (SystemClock.elapsedRealtime() - pausedAt >= REWIND_PAUSE_THRESHOLD_MS) {
+            player.seekTo((player.currentPosition - REWIND_AMOUNT_MS).coerceAtLeast(0L))
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Chapters
+    // ---------------------------------------------------------------------
+
     private data class ServiceChapter(val title: String, val startMs: Long, val endMs: Long)
+
+    private var chapterCacheItem: MediaItem? = null
+    private var chapterCache: List<ServiceChapter> = emptyList()
+
+    private fun chaptersFor(item: MediaItem?): List<ServiceChapter> {
+        if (item !== chapterCacheItem) {
+            chapterCacheItem = item
+            chapterCache = chaptersFromMediaItem(item)
+        }
+        return chapterCache
+    }
 
     private fun chaptersFromMediaItem(item: MediaItem?): List<ServiceChapter> {
         val extras = item?.mediaMetadata?.extras ?: return emptyList()
@@ -147,6 +207,14 @@ class AudiobookService : MediaSessionService() {
     @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
+
+        // Keep the rewind-on-resume setting in sync with DataStore so the
+        // toggle works immediately, without a custom session command.
+        serviceScope.launch {
+            preferencesRepository.rewindOnResume.collect { enabled ->
+                rewindOnResumeEnabled = enabled
+            }
+        }
 
         val dataSourceFactory = if (DEBUG_DISABLE_CACHE) {
             DefaultDataSource.Factory(this)
@@ -198,16 +266,45 @@ class AudiobookService : MediaSessionService() {
                 }
             }
 
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                if (!playWhenReady) {
+                    pausedAtElapsedMs = SystemClock.elapsedRealtime()
+                }
+            }
+
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                lastChapterIndex = -1
+                val uri = mediaItem?.localConfiguration?.uri?.toString()
+                if (uri != lastBookUri) {
+                    lastBookUri = uri
+                    lastChapterIndex = -1
+                    pausedAtElapsedMs = null
+                }
                 if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
                     saveCurrentPosition()
+                }
+            }
+
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int
+            ) {
+                if (reason == Player.DISCONTINUITY_REASON_SEEK ||
+                    reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT
+                ) {
+                    updateChapterMetadata(player, newPosition.positionMs)
+                    saveCurrentPosition()
+
+                    if (!player.playWhenReady && pausedAtElapsedMs != null) {
+                        pausedAtElapsedMs = SystemClock.elapsedRealtime()
+                    }
                 }
             }
 
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) {
                     abandonAudioFocus()
+                    pausedAtElapsedMs = null
                 }
             }
         })
@@ -217,10 +314,21 @@ class AudiobookService : MediaSessionService() {
         val wrappedPlayer = object : ForwardingPlayer(player) {
 
             private fun currentChapter(): ServiceChapter? {
-                val chapters = chaptersFromMediaItem(super.getCurrentMediaItem())
+                val chapters = chaptersFor(super.getCurrentMediaItem())
                 if (chapters.isEmpty()) return null
                 val absPos = super.getCurrentPosition().coerceAtLeast(0L)
                 return chapters.lastOrNull { it.startMs <= absPos } ?: chapters.firstOrNull()
+            }
+
+            override fun getAvailableCommands(): Player.Commands {
+                return super.getAvailableCommands().buildUpon()
+                    .add(Player.COMMAND_SEEK_TO_NEXT)
+                    .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                    .build()
+            }
+
+            override fun isCommandAvailable(command: Int): Boolean {
+                return getAvailableCommands().contains(command)
             }
 
             override fun getCurrentPosition(): Long {
@@ -272,12 +380,18 @@ class AudiobookService : MediaSessionService() {
             }
 
             override fun play() {
-                if (requestAudioFocus()) super.play()
+                if (requestAudioFocus()) {
+                    applyResumeRewindIfNeeded()
+                    super.play()
+                }
             }
 
             override fun setPlayWhenReady(playWhenReady: Boolean) {
                 if (playWhenReady) {
-                    if (requestAudioFocus()) super.setPlayWhenReady(true)
+                    if (requestAudioFocus()) {
+                        applyResumeRewindIfNeeded()
+                        super.setPlayWhenReady(true)
+                    }
                 } else {
                     super.setPlayWhenReady(false)
                 }
@@ -348,43 +462,58 @@ class AudiobookService : MediaSessionService() {
     }
 
     /**
-     * Watch the underlying (absolute) position while playing. When we cross
-     * into a new chapter, update the MediaItem's subtitle (chapter title) and
-     * extras (chapter index). This fires onMediaMetadataChanged on any
+     * Compute the chapter for the given absolute position and, if it differs
+     * from the last published one, push it into the MediaItem's subtitle and
+     * extras via replaceMediaItem. This fires onMediaMetadataChanged on any
      * connected MediaController so the ViewModel can stay in sync.
+     *
+     * Called from the 500ms watch loop (natural chapter crossings during
+     * playback) and from onPositionDiscontinuity (seeks, including while
+     * paused).
      */
     @OptIn(UnstableApi::class)
+    private fun updateChapterMetadata(
+        player: Player,
+        absolutePositionMs: Long = player.currentPosition
+    ) {
+        val currentItem = player.currentMediaItem ?: return
+        val chapters = chaptersFor(currentItem)
+        if (chapters.isEmpty()) return
+
+        val pos = absolutePositionMs.coerceAtLeast(0L)
+        val idx = chapters.indexOfLast { it.startMs <= pos }
+        if (idx < 0 || idx == lastChapterIndex) return
+
+        lastChapterIndex = idx
+        val newChapterTitle = chapters[idx].title
+
+        val existing = currentItem.mediaMetadata.extras ?: Bundle.EMPTY
+        val newExtras = Bundle(existing).apply {
+            putInt(EXTRA_CURRENT_CHAPTER_INDEX, idx)
+        }
+
+        val updatedMetadata = currentItem.mediaMetadata.buildUpon()
+            .setSubtitle(newChapterTitle)
+            .setExtras(newExtras)
+            .build()
+
+        val updatedItem = currentItem.buildUpon()
+            .setMediaMetadata(updatedMetadata)
+            .build()
+
+        player.replaceMediaItem(player.currentMediaItemIndex, updatedItem)
+    }
+
+    /**
+     * Watch the underlying (absolute) position while playing so natural
+     * chapter crossings update the metadata. Seek-driven crossings are
+     * handled immediately by onPositionDiscontinuity instead.
+     */
     private fun startChapterWatch(player: Player) {
         chapterWatchJob?.cancel()
         chapterWatchJob = serviceScope.launch {
             while (isActive) {
-                val currentItem = player.currentMediaItem
-                val chapters = chaptersFromMediaItem(currentItem)
-                if (chapters.isNotEmpty() && currentItem != null) {
-                    val pos = player.currentPosition.coerceAtLeast(0L)
-                    val idx = chapters.indexOfLast { it.startMs <= pos }
-
-                    if (idx >= 0 && idx != lastChapterIndex) {
-                        lastChapterIndex = idx
-                        val newChapterTitle = chapters[idx].title
-
-                        val existing = currentItem.mediaMetadata.extras ?: Bundle.EMPTY
-                        val newExtras = Bundle(existing).apply {
-                            putInt(EXTRA_CURRENT_CHAPTER_INDEX, idx)
-                        }
-
-                        val updatedMetadata = currentItem.mediaMetadata.buildUpon()
-                            .setSubtitle(newChapterTitle)
-                            .setExtras(newExtras)
-                            .build()
-
-                        val updatedItem = currentItem.buildUpon()
-                            .setMediaMetadata(updatedMetadata)
-                            .build()
-
-                        player.replaceMediaItem(player.currentMediaItemIndex, updatedItem)
-                    }
-                }
+                updateChapterMetadata(player)
                 delay(500)
             }
         }

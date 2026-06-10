@@ -30,6 +30,7 @@ import androidx.compose.material.icons.rounded.DoneAll
 import nl.deruever.vorrin.R
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.RestartAlt
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.sharp.Pause
 import androidx.compose.material.icons.sharp.PlayArrow
 import androidx.compose.material3.Card
@@ -81,7 +82,8 @@ import nl.deruever.vorrin.ui.player.PlayerViewModel
 fun LibraryScreen(
     viewModel: LibraryViewModel = viewModel(),
     playerViewModel: PlayerViewModel,
-    onBookClick: (Audiobook) -> Unit
+    onBookClick: (Audiobook) -> Unit,
+    onSettingsClick: () -> Unit
 ) {
     val books by viewModel.books.collectAsState()
     val folderUri by viewModel.folderUri.collectAsState()
@@ -150,7 +152,17 @@ fun LibraryScreen(
                         }
                     )
                 } else {
-                    TopAppBar(title = { Text("Vorrin") })
+                    TopAppBar(
+                        title = { Text("Vorrin") },
+                        actions = {
+                            IconButton(onClick = onSettingsClick) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Settings,
+                                    contentDescription = "Settings"
+                                )
+                            }
+                        }
+                    )
                 }
             }
         },

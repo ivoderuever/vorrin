@@ -4,6 +4,7 @@ package nl.deruever.vorrin.data
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -22,6 +23,7 @@ class PreferencesRepository(private val context: Context) {
         val ACTIVE_BOOK_URI_KEY = stringPreferencesKey("active_book_uri")
         val SKIP_DURATION_KEY = intPreferencesKey("skip_duration_seconds")
         val PLAYBACK_SPEED_KEY = floatPreferencesKey("playback_speed")
+        val REWIND_ON_RESUME_KEY = booleanPreferencesKey("rewind_on_resume")
     }
 
     val folderUri: Flow<String?> = context.dataStore.data.map { prefs ->
@@ -30,6 +32,12 @@ class PreferencesRepository(private val context: Context) {
 
     val activeBookUri: Flow<String?> = context.dataStore.data.map { prefs ->
         prefs[ACTIVE_BOOK_URI_KEY]
+    }
+
+    // Observed live by AudiobookService and SettingsViewModel, so toggling
+    // the setting takes effect immediately without restarting playback.
+    val rewindOnResume: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[REWIND_ON_RESUME_KEY] ?: true
     }
 
     private fun bookPositionKey(uri: String) = stringPreferencesKey("position_${uri.hashCode()}")
@@ -74,6 +82,12 @@ class PreferencesRepository(private val context: Context) {
     suspend fun savePlaybackSpeed(speed: Float) {
         context.dataStore.edit { prefs ->
             prefs[PLAYBACK_SPEED_KEY] = speed
+        }
+    }
+
+    suspend fun saveRewindOnResume(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[REWIND_ON_RESUME_KEY] = enabled
         }
     }
 
