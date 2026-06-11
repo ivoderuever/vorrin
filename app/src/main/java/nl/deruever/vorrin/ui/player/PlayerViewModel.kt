@@ -26,6 +26,7 @@ import nl.deruever.vorrin.data.Chapter
 import nl.deruever.vorrin.data.PreferencesRepository
 import nl.deruever.vorrin.data.db.VorrinDatabase
 import nl.deruever.vorrin.service.AudiobookService
+import nl.deruever.vorrin.service.BookMediaItem
 
 class PlayerViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -156,34 +157,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
 
-        val bookUri = android.net.Uri.parse(book.uri)
-
-        // Chapter data lives in MediaItem extras so it survives ViewModel death
-        val extras = Bundle().apply {
-            if (book.chapters.isNotEmpty()) {
-                putStringArray(AudiobookService.EXTRA_CHAPTER_TITLES, book.chapters.map { it.title }.toTypedArray())
-                putLongArray(AudiobookService.EXTRA_CHAPTER_START_TIMES, book.chapters.map { it.startTimeMs }.toLongArray())
-                putLongArray(AudiobookService.EXTRA_CHAPTER_END_TIMES, book.chapters.map { it.endTimeMs }.toLongArray())
-                putInt(AudiobookService.EXTRA_CURRENT_CHAPTER_INDEX, currentChapterIndex)
-            }
-        }
-
-        val initialChapterTitle = book.chapters.getOrNull(currentChapterIndex)?.title
-
-        val metadata = MediaMetadata.Builder()
-            .setTitle(book.title)
-            .setArtist(book.author)
-            .apply {
-                if (initialChapterTitle != null) setSubtitle(initialChapterTitle)
-            }
-            .setArtworkData(book.coverArt, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
-            .setExtras(extras)
-            .build()
-
-        val mediaItem = MediaItem.Builder()
-            .setUri(bookUri)
-            .setMediaMetadata(metadata)
-            .build()
+        val mediaItem = BookMediaItem.from(book, currentChapterIndex)
 
         ctrl.setMediaItem(mediaItem, book.lastPosition)
         ctrl.prepare()

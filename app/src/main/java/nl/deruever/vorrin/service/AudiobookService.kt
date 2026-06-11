@@ -12,6 +12,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
@@ -20,28 +21,33 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.CommandButton
+import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import nl.deruever.vorrin.MainActivity
 import nl.deruever.vorrin.data.BookCache
 import nl.deruever.vorrin.data.BookStatus
 import nl.deruever.vorrin.data.PreferencesRepository
+import nl.deruever.vorrin.data.db.BookEntity
+import nl.deruever.vorrin.data.db.ChapterEntity
 import nl.deruever.vorrin.data.db.VorrinDatabase
 
-class AudiobookService : MediaSessionService() {
+class AudiobookService : MediaLibraryService() {
 
     companion object {
         val SET_SKIP_DURATION = SessionCommand("set_skip_duration", Bundle.EMPTY)
@@ -49,6 +55,15 @@ class AudiobookService : MediaSessionService() {
         // The service is the single writer of playback progress; controllers
         // ask for an immediate save instead of writing to the DB themselves.
         val SAVE_POSITION = SessionCommand("save_position", Bundle.EMPTY)
+        // Chapter jumps for Android Auto's secondary action slots; the primary
+        // prev/next buttons stay mapped to time skips in the ForwardingPlayer.
+        val CHAPTER_PREV = SessionCommand("chapter_prev", Bundle.EMPTY)
+        val CHAPTER_NEXT = SessionCommand("chapter_next", Bundle.EMPTY)
+
+        // Android Auto browse tree: a flat list of the active book's chapters
+        private const val ROOT_MEDIA_ID = "root"
+        private const val BOOK_MEDIA_ID = "book"
+        private const val CHAPTER_MEDIA_ID_PREFIX = "chapter:"
 
         const val EXTRA_CHAPTER_TITLES = "chapter_titles"
         const val EXTRA_CHAPTER_START_TIMES = "chapter_start_times"
@@ -63,7 +78,7 @@ class AudiobookService : MediaSessionService() {
 
     private val DEBUG_DISABLE_CACHE = false
 
-    private var mediaSession: MediaSession? = null
+    private var mediaSession: MediaLibrarySession? = null
     private var underlyingPlayer: ExoPlayer? = null
     private var skipDurationMs: Long = 15_000L
 
@@ -232,6 +247,12 @@ class AudiobookService : MediaSessionService() {
             }
         }
 
+        // Cold starts (Android Auto) must use the configured skip duration
+        // before any phone controller pushes it via SET_SKIP_DURATION.
+        serviceScope.launch {
+            skipDurationMs = preferencesRepository.getSkipDuration() * 1_000L
+        }
+
         val dataSourceFactory = if (DEBUG_DISABLE_CACHE) {
             DefaultDataSource.Factory(this)
         } else {
@@ -312,6 +333,10 @@ class AudiobookService : MediaSessionService() {
                             }
                         }
                     }
+                    // The car browse list shows the active book's chapters
+                    mediaSession?.notifyChildrenChanged(
+                        ROOT_MEDIA_ID, chaptersFor(mediaItem).size.coerceAtLeast(1), null
+                    )
                 }
                 if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
                     saveCurrentPosition()
@@ -461,43 +486,8 @@ class AudiobookService : MediaSessionService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        mediaSession = MediaSession.Builder(this, wrappedPlayer)
+        mediaSession = MediaLibrarySession.Builder(this, wrappedPlayer, LibrarySessionCallback())
             .setSessionActivity(pendingIntent)
-            .setCallback(object : MediaSession.Callback {
-                override fun onConnect(
-                    session: MediaSession,
-                    controller: MediaSession.ControllerInfo
-                ): MediaSession.ConnectionResult {
-                    val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
-                        .buildUpon()
-                        .add(SET_SKIP_DURATION)
-                        .add(SEEK_ABSOLUTE)
-                        .add(SAVE_POSITION)
-                        .build()
-                    return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                        .setAvailableSessionCommands(commands)
-                        .build()
-                }
-
-                override fun onCustomCommand(
-                    session: MediaSession,
-                    controller: MediaSession.ControllerInfo,
-                    customCommand: SessionCommand,
-                    args: Bundle
-                ): ListenableFuture<SessionResult> {
-                    when (customCommand.customAction) {
-                        SET_SKIP_DURATION.customAction -> {
-                            skipDurationMs = args.getInt("seconds", 15).toLong() * 1_000L
-                        }
-                        SEEK_ABSOLUTE.customAction -> {
-                            val absoluteMs = args.getLong(SEEK_ABSOLUTE_KEY, 0L)
-                            underlyingPlayer?.seekTo(absoluteMs.coerceAtLeast(0L))
-                        }
-                        SAVE_POSITION.customAction -> saveCurrentPosition()
-                    }
-                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
-                }
-            })
             .setMediaButtonPreferences(
                 ImmutableList.of(
                     CommandButton.Builder(CommandButton.ICON_SKIP_BACK)
@@ -511,10 +501,328 @@ class AudiobookService : MediaSessionService() {
                     CommandButton.Builder(CommandButton.ICON_SKIP_FORWARD)
                         .setDisplayName("Skip forward")
                         .setPlayerCommand(Player.COMMAND_SEEK_FORWARD)
+                        .build(),
+                    // Overflow slot: secondary actions in the car, appended after
+                    // the compact trio in the phone notification.
+                    CommandButton.Builder(CommandButton.ICON_PREVIOUS)
+                        .setDisplayName("Previous chapter")
+                        .setSessionCommand(CHAPTER_PREV)
+                        .setSlots(CommandButton.SLOT_OVERFLOW)
+                        .build(),
+                    CommandButton.Builder(CommandButton.ICON_NEXT)
+                        .setDisplayName("Next chapter")
+                        .setSessionCommand(CHAPTER_NEXT)
+                        .setSlots(CommandButton.SLOT_OVERFLOW)
                         .build()
                 )
             )
             .build()
+    }
+
+    private inner class LibrarySessionCallback : MediaLibrarySession.Callback {
+
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo
+        ): MediaSession.ConnectionResult {
+            val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
+                .buildUpon()
+                .add(SET_SKIP_DURATION)
+                .add(SEEK_ABSOLUTE)
+                .add(SAVE_POSITION)
+                .add(CHAPTER_PREV)
+                .add(CHAPTER_NEXT)
+                .build()
+            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                .setAvailableSessionCommands(commands)
+                .build()
+        }
+
+        override fun onCustomCommand(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            customCommand: SessionCommand,
+            args: Bundle
+        ): ListenableFuture<SessionResult> {
+            when (customCommand.customAction) {
+                SET_SKIP_DURATION.customAction -> {
+                    skipDurationMs = args.getInt("seconds", 15).toLong() * 1_000L
+                }
+                SEEK_ABSOLUTE.customAction -> {
+                    val absoluteMs = args.getLong(SEEK_ABSOLUTE_KEY, 0L)
+                    underlyingPlayer?.seekTo(absoluteMs.coerceAtLeast(0L))
+                }
+                SAVE_POSITION.customAction -> saveCurrentPosition()
+                CHAPTER_PREV.customAction -> seekToChapterPrev()
+                CHAPTER_NEXT.customAction -> seekToChapterNext()
+            }
+            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+        }
+
+        override fun onGetLibraryRoot(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<MediaItem>> =
+            Futures.immediateFuture(LibraryResult.ofItem(rootItem(), params))
+
+        override fun onGetChildren(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            parentId: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            if (parentId != ROOT_MEDIA_ID) {
+                return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.of(), params))
+            }
+            val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
+            serviceScope.launch {
+                val all = browseChildren()
+                val from = (page.toLong() * pageSize).coerceAtMost(all.size.toLong()).toInt()
+                val items = all.subList(from, (from.toLong() + pageSize).coerceAtMost(all.size.toLong()).toInt())
+                future.set(LibraryResult.ofItemList(ImmutableList.copyOf(items), params))
+            }
+            return future
+        }
+
+        override fun onGetItem(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            mediaId: String
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            if (mediaId == ROOT_MEDIA_ID) {
+                return Futures.immediateFuture(LibraryResult.ofItem(rootItem(), null))
+            }
+            val future = SettableFuture.create<LibraryResult<MediaItem>>()
+            serviceScope.launch {
+                val item = browseChildren().firstOrNull { it.mediaId == mediaId }
+                future.set(
+                    if (item != null) LibraryResult.ofItem(item, null)
+                    else LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE)
+                )
+            }
+            return future
+        }
+
+        // Car controllers send a bare mediaId from the browse list; rebuild the
+        // full book item around it. Phone controllers send complete items with a
+        // default mediaId and fall through to the default behavior.
+        override fun onSetMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: MutableList<MediaItem>,
+            startIndex: Int,
+            startPositionMs: Long
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val requestedId = mediaItems.singleOrNull()?.mediaId ?: ""
+            if (requestedId == BOOK_MEDIA_ID || requestedId.startsWith(CHAPTER_MEDIA_ID_PREFIX)) {
+                val future = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+                serviceScope.launch {
+                    val resolved = resolveBrowseSelection(requestedId)
+                    if (resolved != null) future.set(resolved)
+                    else future.setException(UnsupportedOperationException("No active book"))
+                }
+                return future
+            }
+            return super.onSetMediaItems(mediaSession, controller, mediaItems, startIndex, startPositionMs)
+        }
+
+        // Cold play (car or media button) with an empty player: resume the
+        // persisted active book at its saved position. isForPlayback is false
+        // when only resumption metadata is wanted (e.g. System UI).
+        override fun onPlaybackResumption(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            isForPlayback: Boolean
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val future = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+            serviceScope.launch {
+                val resolved = resolveResumption(seedPauseState = isForPlayback)
+                if (resolved != null) future.set(resolved)
+                else future.setException(UnsupportedOperationException("No book to resume"))
+            }
+            return future
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Android Auto browse tree (flat chapter list of the active book)
+    // ---------------------------------------------------------------------
+
+    private fun rootItem(): MediaItem = MediaItem.Builder()
+        .setMediaId(ROOT_MEDIA_ID)
+        .setMediaMetadata(
+            MediaMetadata.Builder()
+                .setTitle("Chapters")
+                .setIsPlayable(false)
+                .setIsBrowsable(true)
+                .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_AUDIO_BOOKS)
+                .build()
+        )
+        .build()
+
+    @OptIn(UnstableApi::class)
+    private fun playableRow(
+        mediaId: String,
+        title: String,
+        subtitle: String?,
+        durationMs: Long?,
+        cover: ByteArray?,
+        mediaType: Int,
+    ): MediaItem = MediaItem.Builder()
+        .setMediaId(mediaId)
+        .setMediaMetadata(
+            MediaMetadata.Builder()
+                .setTitle(title)
+                .setArtist(subtitle)
+                .setArtworkData(cover, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+                .setDurationMs(durationMs?.takeIf { it > 0 })
+                .setIsPlayable(true)
+                .setIsBrowsable(false)
+                .setMediaType(mediaType)
+                .build()
+        )
+        .build()
+
+    // Rows for the active book: the live player item when one is loaded, else
+    // the persisted active book from Room. No active book → empty by design.
+    private suspend fun browseChildren(): List<MediaItem> {
+        val liveItem = underlyingPlayer?.currentMediaItem
+        if (liveItem?.localConfiguration != null) {
+            val chapters = chaptersFor(liveItem)
+            val bookTitle = liveItem.mediaMetadata.title?.toString()
+            val cover = liveItem.mediaMetadata.artworkData
+            if (chapters.isEmpty()) {
+                val duration = underlyingPlayer?.duration?.takeIf { it != C.TIME_UNSET }
+                return listOf(
+                    playableRow(
+                        BOOK_MEDIA_ID, bookTitle ?: "", liveItem.mediaMetadata.artist?.toString(),
+                        duration, cover, MediaMetadata.MEDIA_TYPE_AUDIO_BOOK
+                    )
+                )
+            }
+            return chapters.mapIndexed { index, ch ->
+                playableRow(
+                    "$CHAPTER_MEDIA_ID_PREFIX$index", ch.title, bookTitle,
+                    ch.endMs - ch.startMs, cover, MediaMetadata.MEDIA_TYPE_AUDIO_BOOK_CHAPTER
+                )
+            }
+        }
+
+        val (book, chapters) = activeBookFromDb() ?: return emptyList()
+        if (chapters.isEmpty()) {
+            return listOf(
+                playableRow(
+                    BOOK_MEDIA_ID, book.title, book.author,
+                    book.duration, book.coverArt, MediaMetadata.MEDIA_TYPE_AUDIO_BOOK
+                )
+            )
+        }
+        return chapters.map { ch ->
+            playableRow(
+                "$CHAPTER_MEDIA_ID_PREFIX${ch.index}", ch.title, book.title,
+                ch.endTimeMs - ch.startTimeMs, book.coverArt, MediaMetadata.MEDIA_TYPE_AUDIO_BOOK_CHAPTER
+            )
+        }
+    }
+
+    private suspend fun activeBookFromDb(): Pair<BookEntity, List<ChapterEntity>>? {
+        val uri = preferencesRepository.activeBookUri.first() ?: return null
+        val book = bookDao.getBookByUri(uri) ?: return null
+        return book to bookDao.getChaptersForBook(book.id)
+    }
+
+    private fun chapterIndexAt(chapters: List<ChapterEntity>, positionMs: Long): Int =
+        chapters.indexOfLast { it.startTimeMs <= positionMs }.coerceAtLeast(0)
+
+    // Seeds book-transition state before media3 applies items returned from
+    // onSetMediaItems / onPlaybackResumption: the play() that follows
+    // immediately would otherwise race the async pause-timestamp restore in
+    // the player listener.
+    private fun primeBookState(uri: String, pausedAt: Long?) {
+        if (uri != lastBookUri) {
+            lastBookUri = uri
+            lastChapterIndex = -1
+        }
+        pausedAtWallClockMs = pausedAt
+    }
+
+    // A chapter (or whole-book) row tapped in the car: the full book item
+    // positioned at the chapter start, or null when no book can be resolved.
+    private suspend fun resolveBrowseSelection(mediaId: String): MediaSession.MediaItemsWithStartPosition? {
+        val liveItem = underlyingPlayer?.currentMediaItem
+        val liveConfig = liveItem?.localConfiguration
+        if (liveItem != null && liveConfig != null) {
+            val chapters = chaptersFor(liveItem)
+            val startMs: Long
+            if (mediaId == BOOK_MEDIA_ID || chapters.isEmpty()) {
+                // Continue the live book; keep any pending recap-rewind state
+                startMs = underlyingPlayer?.currentPosition?.coerceAtLeast(0L) ?: 0L
+            } else {
+                val index = mediaId.removePrefix(CHAPTER_MEDIA_ID_PREFIX).toIntOrNull() ?: return null
+                startMs = chapters.getOrNull(index)?.startMs ?: return null
+                // Explicit chapter choice: no recap rewind on the play that follows
+                primeBookState(liveConfig.uri.toString(), pausedAt = null)
+            }
+            return MediaSession.MediaItemsWithStartPosition(listOf(liveItem), 0, startMs)
+        }
+
+        val (book, chapters) = activeBookFromDb() ?: return null
+        val chapterIndex: Int
+        val startMs: Long
+        val pausedAt: Long?
+        if (mediaId == BOOK_MEDIA_ID || chapters.isEmpty()) {
+            // The whole-book row means "continue": recap rewind applies
+            chapterIndex = chapterIndexAt(chapters, book.lastPosition)
+            startMs = book.lastPosition
+            pausedAt = book.lastPausedAt
+        } else {
+            val index = mediaId.removePrefix(CHAPTER_MEDIA_ID_PREFIX).toIntOrNull() ?: return null
+            val chapter = chapters.firstOrNull { it.index == index } ?: return null
+            chapterIndex = index
+            startMs = chapter.startTimeMs
+            pausedAt = null
+        }
+        val item = BookMediaItem.from(book, chapters, chapterIndex)
+        primeBookState(book.uri, pausedAt)
+        return MediaSession.MediaItemsWithStartPosition(listOf(item), 0, startMs)
+    }
+
+    private suspend fun resolveResumption(seedPauseState: Boolean): MediaSession.MediaItemsWithStartPosition? {
+        val (book, chapters) = activeBookFromDb() ?: return null
+        val item = BookMediaItem.from(book, chapters, chapterIndexAt(chapters, book.lastPosition))
+        if (seedPauseState) {
+            // Seed the persisted pause timestamp before the immediate play()
+            // so the recap rewind applies exactly like a phone resume.
+            primeBookState(book.uri, book.lastPausedAt)
+        }
+        return MediaSession.MediaItemsWithStartPosition(listOf(item), 0, book.lastPosition)
+    }
+
+    // Mirrors the phone's chapterBack/chapterForward. Absolute seeks on the
+    // underlying player flow through the existing listener, so progress
+    // persistence stays in one place.
+    private fun seekToChapterPrev() {
+        val player = underlyingPlayer ?: return
+        val chapters = chaptersFor(player.currentMediaItem)
+        if (chapters.isEmpty()) return
+        val pos = player.currentPosition.coerceAtLeast(0L)
+        val idx = chapters.indexOfLast { it.startMs <= pos }.coerceAtLeast(0)
+        // Well into a chapter, "previous" first returns to its start
+        val target = if (pos - chapters[idx].startMs > 2_000L) idx else (idx - 1).coerceAtLeast(0)
+        player.seekTo(chapters[target].startMs)
+    }
+
+    private fun seekToChapterNext() {
+        val player = underlyingPlayer ?: return
+        val chapters = chaptersFor(player.currentMediaItem)
+        if (chapters.isEmpty()) return
+        val pos = player.currentPosition.coerceAtLeast(0L)
+        val idx = chapters.indexOfLast { it.startMs <= pos }
+        val next = chapters.getOrNull(idx + 1) ?: return
+        player.seekTo(next.startMs)
     }
 
     // Publishes the chapter for the given position into the MediaItem's
@@ -583,7 +891,7 @@ class AudiobookService : MediaSessionService() {
         super.onTaskRemoved(rootIntent)
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? =
         mediaSession
 
     override fun onDestroy() {
