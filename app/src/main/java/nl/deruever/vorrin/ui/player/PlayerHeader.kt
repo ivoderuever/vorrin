@@ -46,10 +46,11 @@ internal fun PlayerCover(
     coverArt: ByteArray? = null,
     modifier: Modifier = Modifier
 ) {
+    // Stable per-book reference so Coil doesn't reload on recomposition
     val stableCoverArt = remember(bookId) { coverArt }
 
     AsyncImage(
-        model = stableCoverArt, // Pass the stable reference to Coil
+        model = stableCoverArt,
         contentDescription = "Cover art for $title",
         modifier = modifier
             .clip(RoundedCornerShape(24.dp)),
@@ -62,9 +63,9 @@ internal fun PlayerCover(
 @Composable
 internal fun PlayerBookInfo(book: Audiobook, currentPositionMs: Long, duration: Long) {
     val effectiveDuration = if (duration > 0) duration else book.duration
-    val timeLeft = effectiveDuration - currentPositionMs
+    val timeLeft = (effectiveDuration - currentPositionMs).coerceAtLeast(0L)
     val progressPercent = if (effectiveDuration > 0)
-        ((currentPositionMs.toFloat() / effectiveDuration) * 100).toInt()
+        ((currentPositionMs.toFloat() / effectiveDuration) * 100).toInt().coerceIn(0, 100)
     else 0
 
     Text(

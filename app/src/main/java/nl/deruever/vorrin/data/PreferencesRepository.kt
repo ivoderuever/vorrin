@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
@@ -26,22 +27,20 @@ class PreferencesRepository(private val context: Context) {
         val REWIND_ON_RESUME_KEY = booleanPreferencesKey("rewind_on_resume")
     }
 
+    // distinctUntilChanged: DataStore re-emits the whole preferences object on
+    // every write, and collectors of these flows do heavy work (folder rescans).
     val folderUri: Flow<String?> = context.dataStore.data.map { prefs ->
         prefs[FOLDER_URI_KEY]
-    }
+    }.distinctUntilChanged()
 
     val activeBookUri: Flow<String?> = context.dataStore.data.map { prefs ->
         prefs[ACTIVE_BOOK_URI_KEY]
-    }
+    }.distinctUntilChanged()
 
-    // Observed live by AudiobookService and SettingsViewModel, so toggling
-    // the setting takes effect immediately without restarting playback.
+    // Observed live by AudiobookService and SettingsViewModel.
     val rewindOnResume: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[REWIND_ON_RESUME_KEY] ?: true
-    }
-
-    private fun bookPositionKey(uri: String) = stringPreferencesKey("position_${uri.hashCode()}")
-
+    }.distinctUntilChanged()
 
     suspend fun saveFolderUri(uri: String) {
         context.dataStore.edit { prefs ->
@@ -89,17 +88,5 @@ class PreferencesRepository(private val context: Context) {
         context.dataStore.edit { prefs ->
             prefs[REWIND_ON_RESUME_KEY] = enabled
         }
-    }
-
-    suspend fun saveBookPosition(uri: String, positionMs: Long) {
-        context.dataStore.edit { prefs ->
-            prefs[bookPositionKey(uri)] = positionMs.toString()
-        }
-    }
-
-    suspend fun getBookPosition(uri: String): Long {
-        return context.dataStore.data.map { prefs ->
-            prefs[bookPositionKey(uri)]?.toLongOrNull() ?: 0L
-        }.first()
     }
 }

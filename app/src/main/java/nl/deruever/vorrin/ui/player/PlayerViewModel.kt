@@ -40,7 +40,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var totalDuration: Long = 0L
     private var positionUpdateJob: Job? = null
     private var startPositionOverride: Pair<String, Long>? = null
-    private var isPlaybackActive = false
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
@@ -83,7 +82,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
         _isReady.value = false
         _isPlaying.value = false
-        isPlaybackActive = false
         _currentPositionMs.value = effectiveBook.lastPosition
         _duration.value = effectiveBook.duration
 
@@ -117,12 +115,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         if (chapters.isEmpty()) 0
         else chapters.indexOfLast { it.startTimeMs <= absoluteMs }.coerceAtLeast(0)
 
-    /**
-     * If the service is already running this book (e.g., app reopened mid car
-     * trip after the ViewModel was cleared), pull the current chapter index
-     * out of the live MediaItem's extras so we don't trust the stale
-     * lastPosition from the DB.
-     */
+    // If the service is already playing this book, take the chapter index from
+    // the live MediaItem extras instead of the stale DB lastPosition.
     private fun syncFromExistingSession(book: Audiobook) {
         val ctrl = controller ?: return
         val mediaItem = ctrl.currentMediaItem ?: return
@@ -136,10 +130,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /**
-     * Combines our tracked chapter index with the controller's chapter-relative
-     * position to produce absolute book time.
-     */
+    // Tracked chapter start + the controller's chapter-relative position.
     private fun absolutePosition(): Long {
         val chapterRel = (controller?.currentPosition ?: 0L).coerceAtLeast(0L)
         return if (chapters.isNotEmpty() && currentChapterIndex in chapters.indices) {
@@ -161,7 +152,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             _duration.value = totalDuration
             _currentPositionMs.value = absolutePosition().takeIf { it > 0 } ?: book.lastPosition
             _isPlaying.value = ctrl.isPlaying
-            isPlaybackActive = ctrl.isPlaying
             if (ctrl.isPlaying) startPositionUpdates()
             return
         }
@@ -205,11 +195,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (isPlaying) {
                     _isPlaying.value = true
-                    isPlaybackActive = true
                     startPositionUpdates()
                 } else {
                     if (controller?.playWhenReady != true) {
                         _isPlaying.value = false
+                        positionUpdateJob?.cancel()
                     }
                     _currentPositionMs.value = absolutePosition()
                 }
@@ -250,7 +240,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             _duration.value = totalDuration
         }
         _isPlaying.value = controller?.isPlaying == true
-        isPlaybackActive = controller?.isPlaying == true
         if (controller?.isPlaying == true) startPositionUpdates()
     }
 
@@ -269,11 +258,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         else controller?.play()
     }
 
-    /**
-     * Always use this for ViewModel-initiated seeks. Goes through the
-     * SEEK_ABSOLUTE custom command so the service bypasses the chapter-scoped
-     * ForwardingPlayer.seekTo and seeks the underlying player directly.
-     */
+    // ViewModel seeks go through SEEK_ABSOLUTE so the service bypasses the
+    // chapter-scoped ForwardingPlayer.seekTo.
     fun seekTo(absoluteMs: Long) {
         val target = absoluteMs.coerceAtLeast(0L).let {
             if (totalDuration > 0L) it.coerceAtMost(totalDuration) else it
@@ -288,8 +274,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun skipForward(seconds: Int) {
-        val target = (absolutePosition() + seconds * 1000L).coerceAtMost(totalDuration)
-        seekTo(target)
+        seekTo(absolutePosition() + seconds * 1000L)
     }
 
     fun skipBack(seconds: Int) {

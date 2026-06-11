@@ -221,8 +221,7 @@ class AudiobookService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
 
-        // Keep the rewind-on-resume setting in sync with DataStore so the
-        // toggle works immediately, without a custom session command.
+        // Keep the rewind-on-resume setting in sync with DataStore
         serviceScope.launch {
             preferencesRepository.rewindOnResume.collect { enabled ->
                 rewindOnResumeEnabled = enabled
@@ -281,8 +280,7 @@ class AudiobookService : MediaSessionService() {
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 if (playWhenReady) {
-                    // The rewind (if any) was already applied; the book is no
-                    // longer paused, so drop the persisted timestamp too.
+                    // Rewind already applied; the book is no longer paused
                     setPausedAt(null)
                 } else {
                     setPausedAt(System.currentTimeMillis())
@@ -296,8 +294,7 @@ class AudiobookService : MediaSessionService() {
                     lastChapterIndex = -1
                     pausedAtWallClockMs = null
                     if (uri != null) {
-                        // Restore the pause timestamp persisted for this book so
-                        // the recap rewind survives the service being killed.
+                        // Restore the persisted pause timestamp for this book
                         serviceScope.launch {
                             val persisted = bookDao.getLastPausedAt(uri)
                             if (uri == lastBookUri &&
@@ -339,8 +336,8 @@ class AudiobookService : MediaSessionService() {
             }
         })
 
-        // ForwardingPlayer that presents chapter-scoped duration/position to MediaSession.
-        // If no chapters are available, overrides fall through to absolute values.
+        // Presents chapter-scoped duration/position to the MediaSession;
+        // without chapters the overrides fall through to absolute values.
         val wrappedPlayer = object : ForwardingPlayer(player) {
 
             private fun currentChapter(): ServiceChapter? {
@@ -503,16 +500,8 @@ class AudiobookService : MediaSessionService() {
             .build()
     }
 
-    /**
-     * Compute the chapter for the given absolute position and, if it differs
-     * from the last published one, push it into the MediaItem's subtitle and
-     * extras via replaceMediaItem. This fires onMediaMetadataChanged on any
-     * connected MediaController so the ViewModel can stay in sync.
-     *
-     * Called from the 500ms watch loop (natural chapter crossings during
-     * playback) and from onPositionDiscontinuity (seeks, including while
-     * paused).
-     */
+    // Publishes the chapter for the given position into the MediaItem's
+    // subtitle/extras via replaceMediaItem, which notifies connected controllers.
     @OptIn(UnstableApi::class)
     private fun updateChapterMetadata(
         player: Player,
@@ -546,11 +535,8 @@ class AudiobookService : MediaSessionService() {
         player.replaceMediaItem(player.currentMediaItemIndex, updatedItem)
     }
 
-    /**
-     * Watch the underlying (absolute) position while playing so natural
-     * chapter crossings update the metadata. Seek-driven crossings are
-     * handled immediately by onPositionDiscontinuity instead.
-     */
+    // Catches natural chapter crossings during playback; seek-driven crossings
+    // are handled by onPositionDiscontinuity.
     private fun startChapterWatch(player: Player) {
         chapterWatchJob?.cancel()
         chapterWatchJob = serviceScope.launch {

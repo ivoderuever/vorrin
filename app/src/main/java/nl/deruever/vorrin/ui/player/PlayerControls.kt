@@ -19,7 +19,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButtonDefaults // Make sure to add this import
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -114,7 +114,7 @@ internal fun PlayerControls(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
-                        Icons.Rounded.Replay, "Next chapter",
+                        Icons.Rounded.Replay, "Skip forward",
                         Modifier
                             .size(24.dp)
                             .graphicsLayer(scaleX = -1f)
@@ -147,7 +147,7 @@ internal fun PlayerControls(
                     disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             ) {
-                Icon(Icons.Rounded.SkipPrevious, "Skip back", Modifier.size(24.dp))
+                Icon(Icons.Rounded.SkipPrevious, "Previous chapter", Modifier.size(24.dp))
             }
 
             FilledTonalIconButton(
