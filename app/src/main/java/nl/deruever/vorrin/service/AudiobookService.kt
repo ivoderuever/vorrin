@@ -7,7 +7,6 @@ import android.content.Intent
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Bundle
-import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -68,7 +67,10 @@ class AudiobookService : MediaSessionService() {
     private var lastBookUri: String? = null
 
     private var rewindOnResumeEnabled = true
-    private var pausedAtElapsedMs: Long? = null
+
+    // Wall-clock time (epoch millis) of the last pause for the current book.
+    // Mirrored to the books table so the recap rewind survives process death.
+    private var pausedAtWallClockMs: Long? = null
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var positionSaveJob: Job? = null
@@ -89,6 +91,7 @@ class AudiobookService : MediaSessionService() {
     private var focusState = FocusState.NONE
     private var audioFocusRequest: AudioFocusRequest? = null
     private var playOnFocusGain = false
+    private var pauseFromFocusLoss = false
 
     private val focusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         val player = mediaSession?.player ?: return@OnAudioFocusChangeListener
@@ -102,16 +105,17 @@ class AudiobookService : MediaSessionService() {
             }
             AudioManager.AUDIOFOCUS_LOSS -> {
                 playOnFocusGain = false
+                pauseFromFocusLoss = true
                 player.pause()
+                pauseFromFocusLoss = false
                 abandonAudioFocus()
             }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                playOnFocusGain = player.isPlaying
-                player.pause()
-            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 playOnFocusGain = player.isPlaying
+                pauseFromFocusLoss = true
                 player.pause()
+                pauseFromFocusLoss = false
             }
         }
     }
@@ -170,11 +174,20 @@ class AudiobookService : MediaSessionService() {
     private fun applyResumeRewindIfNeeded() {
         if (!rewindOnResumeEnabled) return
         val player = underlyingPlayer ?: return
-        val pausedAt = pausedAtElapsedMs ?: return
-        pausedAtElapsedMs = null
+        val pausedAt = pausedAtWallClockMs ?: return
+        pausedAtWallClockMs = null
 
-        if (SystemClock.elapsedRealtime() - pausedAt >= REWIND_PAUSE_THRESHOLD_MS) {
+        if (System.currentTimeMillis() - pausedAt >= REWIND_PAUSE_THRESHOLD_MS) {
             player.seekTo((player.currentPosition - REWIND_AMOUNT_MS).coerceAtLeast(0L))
+        }
+    }
+
+    private fun setPausedAt(timestamp: Long?) {
+        pausedAtWallClockMs = timestamp
+        val uri = underlyingPlayer?.currentMediaItem
+            ?.localConfiguration?.uri?.toString() ?: return
+        serviceScope.launch(Dispatchers.IO) {
+            bookDao.updateLastPausedAt(uri, timestamp)
         }
     }
 
@@ -267,8 +280,12 @@ class AudiobookService : MediaSessionService() {
             }
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-                if (!playWhenReady) {
-                    pausedAtElapsedMs = SystemClock.elapsedRealtime()
+                if (playWhenReady) {
+                    // The rewind (if any) was already applied; the book is no
+                    // longer paused, so drop the persisted timestamp too.
+                    setPausedAt(null)
+                } else {
+                    setPausedAt(System.currentTimeMillis())
                 }
             }
 
@@ -277,7 +294,20 @@ class AudiobookService : MediaSessionService() {
                 if (uri != lastBookUri) {
                     lastBookUri = uri
                     lastChapterIndex = -1
-                    pausedAtElapsedMs = null
+                    pausedAtWallClockMs = null
+                    if (uri != null) {
+                        // Restore the pause timestamp persisted for this book so
+                        // the recap rewind survives the service being killed.
+                        serviceScope.launch {
+                            val persisted = bookDao.getLastPausedAt(uri)
+                            if (uri == lastBookUri &&
+                                pausedAtWallClockMs == null &&
+                                underlyingPlayer?.playWhenReady != true
+                            ) {
+                                pausedAtWallClockMs = persisted
+                            }
+                        }
+                    }
                 }
                 if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
                     saveCurrentPosition()
@@ -295,8 +325,8 @@ class AudiobookService : MediaSessionService() {
                     updateChapterMetadata(player, newPosition.positionMs)
                     saveCurrentPosition()
 
-                    if (!player.playWhenReady && pausedAtElapsedMs != null) {
-                        pausedAtElapsedMs = SystemClock.elapsedRealtime()
+                    if (!player.playWhenReady && pausedAtWallClockMs != null) {
+                        setPausedAt(System.currentTimeMillis())
                     }
                 }
             }
@@ -304,7 +334,7 @@ class AudiobookService : MediaSessionService() {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) {
                     abandonAudioFocus()
-                    pausedAtElapsedMs = null
+                    setPausedAt(null)
                 }
             }
         })
@@ -386,6 +416,14 @@ class AudiobookService : MediaSessionService() {
                 }
             }
 
+            override fun pause() {
+                if (!pauseFromFocusLoss) {
+                    playOnFocusGain = false
+                    abandonAudioFocus()
+                }
+                super.pause()
+            }
+
             override fun setPlayWhenReady(playWhenReady: Boolean) {
                 if (playWhenReady) {
                     if (requestAudioFocus()) {
@@ -393,6 +431,10 @@ class AudiobookService : MediaSessionService() {
                         super.setPlayWhenReady(true)
                     }
                 } else {
+                    if (!pauseFromFocusLoss) {
+                        playOnFocusGain = false
+                        abandonAudioFocus()
+                    }
                     super.setPlayWhenReady(false)
                 }
             }

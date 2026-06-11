@@ -19,6 +19,7 @@ data class BookEntity(
     val duration: Long,
     val coverArt: ByteArray?,
     val lastPosition: Long = 0L,
+    val lastPausedAt: Long? = null,
     val totalListened: Long = 0L,
     val status: BookStatus = BookStatus.UNREAD,
     val dateAdded: Long = System.currentTimeMillis(),

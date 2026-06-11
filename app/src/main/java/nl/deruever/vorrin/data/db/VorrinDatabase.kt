@@ -11,7 +11,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [BookEntity::class, ChapterEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -37,6 +37,12 @@ abstract class VorrinDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE books ADD COLUMN lastPausedAt INTEGER")
+            }
+        }
+
         fun getInstance(context: Context): VorrinDatabase {
             return INSTANCE ?: synchronized(this) {
                 Room.databaseBuilder(
@@ -44,7 +50,7 @@ abstract class VorrinDatabase : RoomDatabase() {
                     VorrinDatabase::class.java,
                     "vorrin_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build().also { INSTANCE = it }
             }
         }
