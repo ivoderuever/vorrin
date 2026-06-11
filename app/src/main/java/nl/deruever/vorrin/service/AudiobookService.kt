@@ -37,6 +37,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import nl.deruever.vorrin.MainActivity
 import nl.deruever.vorrin.data.BookCache
+import nl.deruever.vorrin.data.BookStatus
 import nl.deruever.vorrin.data.PreferencesRepository
 import nl.deruever.vorrin.data.db.VorrinDatabase
 
@@ -45,6 +46,9 @@ class AudiobookService : MediaSessionService() {
     companion object {
         val SET_SKIP_DURATION = SessionCommand("set_skip_duration", Bundle.EMPTY)
         val SEEK_ABSOLUTE = SessionCommand("seek_absolute", Bundle.EMPTY)
+        // The service is the single writer of playback progress; controllers
+        // ask for an immediate save instead of writing to the DB themselves.
+        val SAVE_POSITION = SessionCommand("save_position", Bundle.EMPTY)
 
         const val EXTRA_CHAPTER_TITLES = "chapter_titles"
         const val EXTRA_CHAPTER_START_TIMES = "chapter_start_times"
@@ -231,9 +235,12 @@ class AudiobookService : MediaSessionService() {
         val dataSourceFactory = if (DEBUG_DISABLE_CACHE) {
             DefaultDataSource.Factory(this)
         } else {
+            // Read-only: serves the prewarmed head/tail from cache but does not
+            // copy entire books into it while playing.
             CacheDataSource.Factory()
                 .setCache(BookCache.get(this))
                 .setUpstreamDataSourceFactory(DefaultDataSource.Factory(this))
+                .setCacheWriteDataSinkFactory(null)
                 .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
         }
 
@@ -332,6 +339,14 @@ class AudiobookService : MediaSessionService() {
                 if (state == Player.STATE_ENDED) {
                     abandonAudioFocus()
                     setPausedAt(null)
+                    // Mark finished here (not in the ViewModel) so it also
+                    // happens when the book ends with the app closed.
+                    val uri = player.currentMediaItem?.localConfiguration?.uri?.toString()
+                    if (uri != null) {
+                        serviceScope.launch(Dispatchers.IO) {
+                            bookDao.updateStatus(uri, BookStatus.FINISHED)
+                        }
+                    }
                 }
             }
         })
@@ -457,6 +472,7 @@ class AudiobookService : MediaSessionService() {
                         .buildUpon()
                         .add(SET_SKIP_DURATION)
                         .add(SEEK_ABSOLUTE)
+                        .add(SAVE_POSITION)
                         .build()
                     return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                         .setAvailableSessionCommands(commands)
@@ -477,6 +493,7 @@ class AudiobookService : MediaSessionService() {
                             val absoluteMs = args.getLong(SEEK_ABSOLUTE_KEY, 0L)
                             underlyingPlayer?.seekTo(absoluteMs.coerceAtLeast(0L))
                         }
+                        SAVE_POSITION.customAction -> saveCurrentPosition()
                     }
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }

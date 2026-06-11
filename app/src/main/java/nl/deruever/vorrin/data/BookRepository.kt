@@ -171,10 +171,14 @@ class BookRepository(
 
             // Head (ftyp box) and tail (where the moov atom usually lives);
             // draining a CacheDataSource read loop populates the cache.
-            for (spec in listOf(
+            // Ranges that are already fully cached are skipped.
+            val cacheKey = uri.toString()
+            val specs = listOf(
                 DataSpec(uri, 0L, headSize),
                 DataSpec(uri, tailOffset, tailSize)
-            )) {
+            ).filterNot { cache.isCached(cacheKey, it.position, it.length) }
+
+            for (spec in specs) {
                 val dataSource = CacheDataSource(
                     cache,
                     upstreamFactory.createDataSource(),

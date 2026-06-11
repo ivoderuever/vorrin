@@ -30,11 +30,6 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    // Pull-to-refresh only; keeps the list visible while syncing, unlike
-    // isLoading which swaps the whole screen for a spinner.
-    private val _isRefreshing = MutableStateFlow(false)
-    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
-
     private val _activeBook = MutableStateFlow<Audiobook?>(null)
     val activeBook: StateFlow<Audiobook?> = _activeBook.asStateFlow()
 
@@ -154,11 +149,13 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             _hasFolderAccess.value = hasAccess
 
             if (hasAccess) {
-                _isRefreshing.value = true
+                // Full-screen loader on purpose: blocks interaction while the
+                // library is being rescanned.
+                _isLoading.value = true
                 val minDelay = launch { delay(1_500) }
                 bookRepository.syncFolder(uri)
                 minDelay.join()
-                _isRefreshing.value = false
+                _isLoading.value = false
             }
         }
     }

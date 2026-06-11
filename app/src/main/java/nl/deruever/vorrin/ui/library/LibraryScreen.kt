@@ -92,7 +92,6 @@ fun LibraryScreen(
     val isInitializing by viewModel.isInitializing.collectAsState()
     val layoutDirection = LocalLayoutDirection.current
     val isPlaying by playerViewModel.isPlaying.collectAsState()
-    val isRefreshing by viewModel.isRefreshing.collectAsState()
     val selectedBookUris by viewModel.selectedBookUris.collectAsState()
     val hasFolderAccess by viewModel.hasFolderAccess.collectAsState()
     val isSelectionMode = selectedBookUris.isNotEmpty()
@@ -193,7 +192,7 @@ fun LibraryScreen(
                 else -> {
                     val pullState = rememberPullToRefreshState()
                     PullToRefreshBox(
-                        isRefreshing = isRefreshing,
+                        isRefreshing = isLoading,
                         onRefresh = { viewModel.refresh() },
                         state = pullState,
                         modifier = Modifier.fillMaxSize()

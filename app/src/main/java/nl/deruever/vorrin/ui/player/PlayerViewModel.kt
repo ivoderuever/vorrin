@@ -212,9 +212,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     _currentPositionMs.value = absolutePosition()
                 }
                 if (state == Player.STATE_ENDED) {
+                    // The service marks the book finished; only mirror UI state.
                     _isPlaying.value = false
-                    val uri = currentBookUri ?: return
-                    viewModelScope.launch { bookDao.updateStatus(uri, BookStatus.FINISHED) }
                 }
             }
 
@@ -270,7 +269,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         val args = Bundle().apply { putLong("position", target) }
         controller?.sendCustomCommand(AudiobookService.SEEK_ABSOLUTE, args)
         _currentPositionMs.value = target
-        savePosition(target)
     }
 
     fun skipForward(seconds: Int) {
@@ -326,16 +324,13 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun savePosition(position: Long? = null) {
-        val uri = currentBookUri ?: return
-        val pos = position ?: absolutePosition()
-        viewModelScope.launch {
-            bookDao.updatePosition(uri, pos)
-        }
+    // Asks the service (the single writer of playback progress) to persist the
+    // current position now, so the library list is fresh when navigating back.
+    fun savePosition() {
+        controller?.sendCustomCommand(AudiobookService.SAVE_POSITION, Bundle.EMPTY)
     }
 
     override fun onCleared() {
-        savePosition()
         positionUpdateJob?.cancel()
         controllerFuture?.let { MediaController.releaseFuture(it) }
         super.onCleared()
