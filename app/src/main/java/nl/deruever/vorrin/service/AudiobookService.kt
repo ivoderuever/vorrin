@@ -52,11 +52,9 @@ class AudiobookService : MediaLibraryService() {
     companion object {
         val SET_SKIP_DURATION = SessionCommand("set_skip_duration", Bundle.EMPTY)
         val SEEK_ABSOLUTE = SessionCommand("seek_absolute", Bundle.EMPTY)
-        // The service is the single writer of playback progress; controllers
-        // ask for an immediate save instead of writing to the DB themselves.
+        // Controllers request saves; the service is the single writer of progress
         val SAVE_POSITION = SessionCommand("save_position", Bundle.EMPTY)
-        // Chapter jumps for Android Auto's secondary action slots; the primary
-        // prev/next buttons stay mapped to time skips in the ForwardingPlayer.
+        // Chapter jumps for the car; primary prev/next stay time skips
         val CHAPTER_PREV = SessionCommand("chapter_prev", Bundle.EMPTY)
         val CHAPTER_NEXT = SessionCommand("chapter_next", Bundle.EMPTY)
 
@@ -247,8 +245,7 @@ class AudiobookService : MediaLibraryService() {
             }
         }
 
-        // Cold starts (Android Auto) must use the configured skip duration
-        // before any phone controller pushes it via SET_SKIP_DURATION.
+        // Cold starts (Android Auto) need the configured skip duration too
         serviceScope.launch {
             skipDurationMs = preferencesRepository.getSkipDuration() * 1_000L
         }
@@ -490,29 +487,32 @@ class AudiobookService : MediaLibraryService() {
             .setSessionActivity(pendingIntent)
             .setMediaButtonPreferences(
                 ImmutableList.of(
+                    // [ch prev][skip back][play][skip fwd][ch next]; chapter buttons
+                    // fall back to overflow (Android Auto's secondary strip)
+                    CommandButton.Builder(CommandButton.ICON_PREVIOUS)
+                        .setDisplayName("Previous chapter")
+                        .setSessionCommand(CHAPTER_PREV)
+                        .setSlots(CommandButton.SLOT_BACK_SECONDARY, CommandButton.SLOT_OVERFLOW)
+                        .build(),
                     CommandButton.Builder(CommandButton.ICON_SKIP_BACK)
                         .setDisplayName("Skip back")
                         .setPlayerCommand(Player.COMMAND_SEEK_BACK)
+                        .setSlots(CommandButton.SLOT_BACK)
                         .build(),
                     CommandButton.Builder(CommandButton.ICON_PLAY)
                         .setDisplayName("Play / Pause")
                         .setPlayerCommand(Player.COMMAND_PLAY_PAUSE)
+                        .setSlots(CommandButton.SLOT_CENTRAL)
                         .build(),
                     CommandButton.Builder(CommandButton.ICON_SKIP_FORWARD)
                         .setDisplayName("Skip forward")
                         .setPlayerCommand(Player.COMMAND_SEEK_FORWARD)
-                        .build(),
-                    // Overflow slot: secondary actions in the car, appended after
-                    // the compact trio in the phone notification.
-                    CommandButton.Builder(CommandButton.ICON_PREVIOUS)
-                        .setDisplayName("Previous chapter")
-                        .setSessionCommand(CHAPTER_PREV)
-                        .setSlots(CommandButton.SLOT_OVERFLOW)
+                        .setSlots(CommandButton.SLOT_FORWARD)
                         .build(),
                     CommandButton.Builder(CommandButton.ICON_NEXT)
                         .setDisplayName("Next chapter")
                         .setSessionCommand(CHAPTER_NEXT)
-                        .setSlots(CommandButton.SLOT_OVERFLOW)
+                        .setSlots(CommandButton.SLOT_FORWARD_SECONDARY, CommandButton.SLOT_OVERFLOW)
                         .build()
                 )
             )
@@ -606,9 +606,8 @@ class AudiobookService : MediaLibraryService() {
             return future
         }
 
-        // Car controllers send a bare mediaId from the browse list; rebuild the
-        // full book item around it. Phone controllers send complete items with a
-        // default mediaId and fall through to the default behavior.
+        // Car browse ids get rebuilt into the full book item; phone items
+        // (default mediaId) fall through to the default behavior.
         override fun onSetMediaItems(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
@@ -629,9 +628,7 @@ class AudiobookService : MediaLibraryService() {
             return super.onSetMediaItems(mediaSession, controller, mediaItems, startIndex, startPositionMs)
         }
 
-        // Cold play (car or media button) with an empty player: resume the
-        // persisted active book at its saved position. isForPlayback is false
-        // when only resumption metadata is wanted (e.g. System UI).
+        // Cold play with an empty player: resume the persisted active book
         override fun onPlaybackResumption(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
@@ -686,8 +683,7 @@ class AudiobookService : MediaLibraryService() {
         )
         .build()
 
-    // Rows for the active book: the live player item when one is loaded, else
-    // the persisted active book from Room. No active book → empty by design.
+    // Rows for the live book, else the persisted active book; never the library
     private suspend fun browseChildren(): List<MediaItem> {
         val liveItem = underlyingPlayer?.currentMediaItem
         if (liveItem?.localConfiguration != null) {
@@ -737,10 +733,8 @@ class AudiobookService : MediaLibraryService() {
     private fun chapterIndexAt(chapters: List<ChapterEntity>, positionMs: Long): Int =
         chapters.indexOfLast { it.startTimeMs <= positionMs }.coerceAtLeast(0)
 
-    // Seeds book-transition state before media3 applies items returned from
-    // onSetMediaItems / onPlaybackResumption: the play() that follows
-    // immediately would otherwise race the async pause-timestamp restore in
-    // the player listener.
+    // Seed book state before media3 applies resolved items; the immediate
+    // play() would otherwise race the async pause-timestamp restore.
     private fun primeBookState(uri: String, pausedAt: Long?) {
         if (uri != lastBookUri) {
             lastBookUri = uri
@@ -749,8 +743,7 @@ class AudiobookService : MediaLibraryService() {
         pausedAtWallClockMs = pausedAt
     }
 
-    // A chapter (or whole-book) row tapped in the car: the full book item
-    // positioned at the chapter start, or null when no book can be resolved.
+    // A row tapped in the car → the full book item at the chapter start
     private suspend fun resolveBrowseSelection(mediaId: String): MediaSession.MediaItemsWithStartPosition? {
         val liveItem = underlyingPlayer?.currentMediaItem
         val liveConfig = liveItem?.localConfiguration
@@ -794,16 +787,13 @@ class AudiobookService : MediaLibraryService() {
         val (book, chapters) = activeBookFromDb() ?: return null
         val item = BookMediaItem.from(book, chapters, chapterIndexAt(chapters, book.lastPosition))
         if (seedPauseState) {
-            // Seed the persisted pause timestamp before the immediate play()
-            // so the recap rewind applies exactly like a phone resume.
+            // Recap rewind applies exactly like a phone resume
             primeBookState(book.uri, book.lastPausedAt)
         }
         return MediaSession.MediaItemsWithStartPosition(listOf(item), 0, book.lastPosition)
     }
 
-    // Mirrors the phone's chapterBack/chapterForward. Absolute seeks on the
-    // underlying player flow through the existing listener, so progress
-    // persistence stays in one place.
+    // Mirrors the phone's chapterBack/chapterForward
     private fun seekToChapterPrev() {
         val player = underlyingPlayer ?: return
         val chapters = chaptersFor(player.currentMediaItem)

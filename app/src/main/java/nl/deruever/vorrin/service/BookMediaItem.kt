@@ -9,8 +9,7 @@ import nl.deruever.vorrin.data.Audiobook
 import nl.deruever.vorrin.data.db.BookEntity
 import nl.deruever.vorrin.data.db.ChapterEntity
 
-// Single builder of the whole-book MediaItem (URI + metadata + chapter extras)
-// shared by the ViewModel and the service, so the two cannot drift apart.
+// Whole-book MediaItem builder shared by the ViewModel and the service
 object BookMediaItem {
 
     fun from(book: Audiobook, currentChapterIndex: Int): MediaItem = build(
