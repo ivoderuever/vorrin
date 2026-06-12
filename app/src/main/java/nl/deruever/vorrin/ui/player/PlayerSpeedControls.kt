@@ -3,7 +3,6 @@ package nl.deruever.vorrin.ui.player
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.MaterialTheme
@@ -22,13 +21,13 @@ internal fun SpeedAndSkipSheetButtons(
         horizontalArrangement = Arrangement.SpaceBetween,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        SpeedSheet(onSpeedClick, playbackSpeed)
-        SkipSheet(onSkipDurationClick, skipDurationSeconds)
+        SpeedChip(onSpeedClick, playbackSpeed)
+        SkipChip(onSkipDurationClick, skipDurationSeconds)
     }
 }
 
 @Composable
-private fun RowScope.SpeedSheet(
+private fun SpeedChip(
     onSpeedClick: () -> Unit,
     playbackSpeed: Float,
 ) {
@@ -44,7 +43,7 @@ private fun RowScope.SpeedSheet(
 }
 
 @Composable
-private fun RowScope.SkipSheet(
+private fun SkipChip(
     onSkipDurationClick: () -> Unit,
     skipDurationSeconds: Int,
 ) {

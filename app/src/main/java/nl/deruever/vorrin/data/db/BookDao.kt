@@ -63,4 +63,10 @@ interface BookDao {
 
     @Query("UPDATE books SET status = :status WHERE uri = :uri")
     suspend fun updateStatus(uri: String, status: BookStatus)
+
+    @Query("SELECT lastPausedAt FROM books WHERE uri = :uri")
+    suspend fun getLastPausedAt(uri: String): Long?
+
+    @Query("UPDATE books SET lastPausedAt = :timestamp WHERE uri = :uri")
+    suspend fun updateLastPausedAt(uri: String, timestamp: Long?)
 }

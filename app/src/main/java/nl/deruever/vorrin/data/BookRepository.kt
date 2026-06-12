@@ -40,6 +40,7 @@ class BookRepository(
         uris.forEach { uri ->
             bookDao.updateStatus(uri, BookStatus.UNREAD)
             bookDao.updatePosition(uri, 0L)
+            bookDao.updateLastPausedAt(uri, null)
         }
     }
 
@@ -59,7 +60,6 @@ class BookRepository(
         ordered.forEach { prewarmCache(Uri.parse(it)) }
     }
 
-    // Recursively collect all .m4b files under a DocumentFile directory
     private fun collectM4bFiles(folder: DocumentFile): Map<String, DocumentFile> {
         val result = mutableMapOf<String, DocumentFile>()
         for (file in folder.listFiles()) {
@@ -72,7 +72,6 @@ class BookRepository(
         return result
     }
 
-    // Scan folder (recursively), index new books, remove deleted ones
     suspend fun syncFolder(folderUri: Uri) = syncMutex.withLock {
         withContext(Dispatchers.IO) {
             val folder = DocumentFile.fromTreeUri(context, folderUri) ?: return@withContext
@@ -81,7 +80,6 @@ class BookRepository(
 
             val urisInDb = bookDao.getAllBookUris().toSet()
 
-            // Remove deleted books
             urisInDb.filterNot { filesOnDisk.containsKey(it) }.forEach { uri ->
                 val book = bookDao.getBookByUri(uri)
                 if (book != null) {
@@ -90,7 +88,6 @@ class BookRepository(
                 }
             }
 
-            // Index new books
             filesOnDisk.filterNot { urisInDb.contains(it.key) }.forEach { (uriString, _) ->
                 indexBook(Uri.parse(uriString))
             }
@@ -109,8 +106,8 @@ class BookRepository(
                 ?: "Unknown"
             val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull() ?: 0L
-            
-            // Downscale cover art during indexing to save space and avoid Bluetooth timeouts
+
+            // Downscale cover art to avoid Bluetooth metadata timeouts
             val rawCoverArt = retriever.embeddedPicture
             val coverArt = rawCoverArt?.let { data ->
                 try {
@@ -141,17 +138,13 @@ class BookRepository(
 
             bookDao.insertBook(entity)
 
-            // Get the inserted book to get its id
             val inserted = bookDao.getBookByUri(uri.toString()) ?: return
 
-            // Extract and store chapters
             val chapters = extractChapters(uri, inserted.id, duration)
             if (chapters.isNotEmpty()) {
                 bookDao.insertChapters(chapters)
             }
 
-            // Pre-warm the ExoPlayer cache with the file's head and tail bytes so
-            // the moov atom (MP4 container index) is cached for instant future opens.
             prewarmCache(uri)
 
         } catch (e: Exception) {
@@ -176,13 +169,16 @@ class BookRepository(
             val tailOffset = maxOf(0L, fileSize - 4 * 1024 * 1024L)
             val tailSize = fileSize - tailOffset
 
-            // Read head (ftyp box) and tail (where moov usually lives).
-            // CacheDataSource writes each byte it reads from upstream into the cache,
-            // so simply draining the read loop is enough to pre-populate it.
-            for (spec in listOf(
+            // Head (ftyp box) and tail (where the moov atom usually lives);
+            // draining a CacheDataSource read loop populates the cache.
+            // Ranges that are already fully cached are skipped.
+            val cacheKey = uri.toString()
+            val specs = listOf(
                 DataSpec(uri, 0L, headSize),
                 DataSpec(uri, tailOffset, tailSize)
-            )) {
+            ).filterNot { cache.isCached(cacheKey, it.position, it.length) }
+
+            for (spec in specs) {
                 val dataSource = CacheDataSource(
                     cache,
                     upstreamFactory.createDataSource(),
@@ -196,7 +192,7 @@ class BookRepository(
                 }
             }
         } catch (e: Exception) {
-            // Pre-warming is best-effort; a failure here doesn't affect playback
+            // Pre-warming is best-effort
         }
     }
 
@@ -263,7 +259,6 @@ class BookRepository(
     }
 }
 
-// Extension functions to convert between DB entities and domain models
 fun BookEntity.toAudiobook(chapters: List<ChapterEntity>): Audiobook {
     return Audiobook(
         id = id.toString(),
@@ -273,7 +268,6 @@ fun BookEntity.toAudiobook(chapters: List<ChapterEntity>): Audiobook {
         duration = duration,
         coverArt = coverArt,
         lastPosition = lastPosition,
-        totalListened = totalListened,
         status = status,
         chapters = chapters.map { it.toChapter() }
     )

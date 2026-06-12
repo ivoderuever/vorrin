@@ -4,12 +4,14 @@ package nl.deruever.vorrin.data
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
@@ -22,18 +24,23 @@ class PreferencesRepository(private val context: Context) {
         val ACTIVE_BOOK_URI_KEY = stringPreferencesKey("active_book_uri")
         val SKIP_DURATION_KEY = intPreferencesKey("skip_duration_seconds")
         val PLAYBACK_SPEED_KEY = floatPreferencesKey("playback_speed")
+        val REWIND_ON_RESUME_KEY = booleanPreferencesKey("rewind_on_resume")
     }
 
+    // distinctUntilChanged: DataStore re-emits the whole preferences object on
+    // every write, and collectors of these flows do heavy work (folder rescans).
     val folderUri: Flow<String?> = context.dataStore.data.map { prefs ->
         prefs[FOLDER_URI_KEY]
-    }
+    }.distinctUntilChanged()
 
     val activeBookUri: Flow<String?> = context.dataStore.data.map { prefs ->
         prefs[ACTIVE_BOOK_URI_KEY]
-    }
+    }.distinctUntilChanged()
 
-    private fun bookPositionKey(uri: String) = stringPreferencesKey("position_${uri.hashCode()}")
-
+    // Observed live by AudiobookService and SettingsViewModel.
+    val rewindOnResume: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[REWIND_ON_RESUME_KEY] ?: true
+    }.distinctUntilChanged()
 
     suspend fun saveFolderUri(uri: String) {
         context.dataStore.edit { prefs ->
@@ -77,15 +84,9 @@ class PreferencesRepository(private val context: Context) {
         }
     }
 
-    suspend fun saveBookPosition(uri: String, positionMs: Long) {
+    suspend fun saveRewindOnResume(enabled: Boolean) {
         context.dataStore.edit { prefs ->
-            prefs[bookPositionKey(uri)] = positionMs.toString()
+            prefs[REWIND_ON_RESUME_KEY] = enabled
         }
-    }
-
-    suspend fun getBookPosition(uri: String): Long {
-        return context.dataStore.data.map { prefs ->
-            prefs[bookPositionKey(uri)]?.toLongOrNull() ?: 0L
-        }.first()
     }
 }

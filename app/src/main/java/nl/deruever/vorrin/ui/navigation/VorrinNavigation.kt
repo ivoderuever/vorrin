@@ -26,12 +26,16 @@ import nl.deruever.vorrin.ui.library.LibraryScreen
 import nl.deruever.vorrin.ui.library.LibraryViewModel
 import nl.deruever.vorrin.ui.player.PlayerScreen
 import nl.deruever.vorrin.ui.player.PlayerViewModel
+import nl.deruever.vorrin.ui.settings.SettingsScreen
 
 @Serializable
 object LibraryRoute
 
 @Serializable
 data class PlayerRoute(val bookId: String)
+
+@Serializable
+object SettingsRoute
 
 @Composable
 fun VorrinNavigation() {
@@ -77,6 +81,11 @@ fun VorrinNavigation() {
                     if (book.isFinished) playerViewModel.resetProgress(book)
                     libraryViewModel.setActiveBook(book)
                     navController.navigate(PlayerRoute(bookId = book.id))
+                },
+                onSettingsClick = {
+                    navController.navigate(SettingsRoute) {
+                        launchSingleTop = true
+                    }
                 }
             )
         }
@@ -98,6 +107,12 @@ fun VorrinNavigation() {
                     onBackClick = { navController.popBackStack() }
                 )
             }
+        }
+
+        composable<SettingsRoute> {
+            SettingsScreen(
+                onBack = { navController.popBackStack() }
+            )
         }
     }
 }

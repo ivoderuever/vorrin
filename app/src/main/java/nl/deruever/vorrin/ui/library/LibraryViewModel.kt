@@ -145,11 +145,12 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             val uriString = _folderUri.value ?: return@launch
             val uri = Uri.parse(uriString)
 
-            // VERIFY ACCESS ON MANUAL REFRESH TOO
             val hasAccess = checkFolderAccess(uri)
             _hasFolderAccess.value = hasAccess
 
             if (hasAccess) {
+                // Full-screen loader on purpose: blocks interaction while the
+                // library is being rescanned.
                 _isLoading.value = true
                 val minDelay = launch { delay(1_500) }
                 bookRepository.syncFolder(uri)
